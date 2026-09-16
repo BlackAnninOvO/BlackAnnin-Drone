@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(Copy-Item)",
+      "Exec(Remove-Item)",
+      "Exec(.\\gradlew.bat build)"
+    ]
+  }
+}

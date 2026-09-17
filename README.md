@@ -45,7 +45,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 ### FPV 视角与 OBS 推流
 
-- **通过 Spout2 输出**到 OBS：在 OBS 中添加 **Spout2 捕获**源，选择发送器 `BlackAnninDrone` 即可。
+- **通过 Spout2 输出**到 OBS：先安装 [obs-spout2-plugin](https://github.com/Off-World-Live/obs-spout2-plugin)，再在 OBS 中添加 **Spout2 捕获**源，选择发送器 `BlackAnninDrone` 即可。
 - **原版渲染管线**：无人机视角由原版管线（天空、光照、雾、手部裁剪）渲染到独立帧缓冲，**玩家自己的画面与 HUD 完全不受影响**，两者互不干扰。
 - **分辨率实时生效**：输出分辨率默认 **1920×1080**，在配置中修改后**下一帧立即生效**，无需重启游戏。
 - **独立视场角**：无人机视角默认 **70**（我的世界默认值），不随你的视场角或疾跑变化；可用控制面板的滑块在 30~110 之间实时调节。
@@ -89,7 +89,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 ## 安装要求
 
 - Minecraft **1.21.1** + **NeoForge 21.1.25x**
-- 使用推流功能需要：**Windows** 系统 + OBS 的 **Spout2 插件**（`SpoutLibrary.dll` 可随模组自动释放，也可在配置中指定路径）
+- 使用推流功能需要：**Windows** 系统 + OBS 的 **[Spout2 插件（obs-spout2-plugin）](https://github.com/Off-World-Live/obs-spout2-plugin)**（`SpoutLibrary.dll` 会随模组自动释放到游戏目录，也可在配置中指定路径）
 - 仅玩游戏不推流时无需任何额外依赖（可在客户端配置中关闭 `spoutEnabled`）
 
 ## 已知限制
@@ -145,7 +145,7 @@ This is where most of the work went — the drone will not just bump into walls:
 
 ### FPV View & OBS Streaming
 
-- **Spout2 output** to OBS: add a **Spout2 Capture** source in OBS and pick the sender `BlackAnninDrone`.
+- **Spout2 output** to OBS: install [obs-spout2-plugin](https://github.com/Off-World-Live/obs-spout2-plugin), then add a **Spout2 Capture** source in OBS and pick the sender `BlackAnninDrone`.
 - **Vanilla render pipeline**: the drone's view is rendered with the vanilla pipeline (sky, lighting, fog, hand suppression) into its own framebuffer, so **your own view and HUD are completely unaffected** — the two never interfere.
 - **Live resolution**: output defaults to **1920×1080** and changes apply **on the very next frame**, no game restart needed.
 - **Independent FOV**: the drone view defaults to **70** (the Minecraft default) and is unaffected by your own FOV or sprinting. Adjustable live between 30 and 110 with the slider in the control panel.
@@ -189,7 +189,7 @@ This is where most of the work went — the drone will not just bump into walls:
 ## Requirements
 
 - Minecraft **1.21.1** + **NeoForge 21.1.25x**
-- For streaming: **Windows** and the **Spout2 plugin** for OBS (`SpoutLibrary.dll` is extracted automatically; a custom path can be set in the config)
+- For streaming: **Windows** and the **[Spout2 plugin for OBS (obs-spout2-plugin)](https://github.com/Off-World-Live/obs-spout2-plugin)** (`SpoutLibrary.dll` is extracted into the game directory automatically; a custom path can be set in the config)
 - No extra dependency for normal play — simply disable `spoutEnabled` in the client config if you do not stream
 
 ## Known Limitations

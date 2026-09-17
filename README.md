@@ -29,7 +29,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 - **距离与高度可调**：默认跟随在你身后 3 格、上方 1 格，均可在配置中调整。
 - **速度联动**：无人机速度随你的移动速度提升（含创造模式飞行），可设置联动系数与最高速度上限，高速移动不再掉队。
-- **平滑跟随**：水平方向缓动跟随；垂直方向在你**落地时始终跟随高度**（跑酷逐格上升也能跟上），空中只有大幅升降（飞行、坠落）才跟随，**平地原地连跳不会让其上下浮动**；移动加减速同样做了平滑，避免顿挫。
+- **平滑跟随**：水平方向缓动跟随；垂直方向在你**落地时始终跟随高度**（跑酷逐格上升也能跟上），空中只有真正的大幅升降（飞行、坠落）才跟随，**跑跳与原地连跳都不会让其上下浮动**；移动加减速同样做了平滑，避免顿挫。
 - **爬行跟随**：当你钻活板门、爬 1 格高通道时，跟随点会切换为「贴身且与你同高」，无人机从**同一个洞口**钻进来跟随，而不是在外面绕飞。
 - **强制传送兜底**：与你的距离超过阈值（默认 16 格）时立即传送到你身边；**你死亡时它原地等待**，复活后自动跟来；**跨维度**（下界/末地/传送）同样自动跟随。
 
@@ -129,7 +129,7 @@ Mod ID: `blackannin_drone` · Version: `0.3.0-1.21.1` · License: MIT
 
 - **Tunable distance and height**: 3 blocks behind and 1 block above you by default, both configurable.
 - **Speed scales with you**: the drone speeds up with your movement (creative flight included) with configurable factor and top speed, so it no longer falls behind.
-- **Smooth following**: eased horizontal tracking; it always follows your height **while you are on the ground** (so block-by-block parkour climbs are matched), follows only large altitude changes while airborne (flight, falling), and **ignores in-place bunny hopping** so the view never bobs. Acceleration is smoothed as well.
+- **Smooth following**: eased horizontal tracking; it always follows your height **while you are on the ground** (so block-by-block parkour climbs are matched), follows only real altitude changes while airborne (flight, falling), and **ignores the jump arc entirely** — so neither running jumps nor in-place bunny hopping make the view bob. Acceleration is smoothed as well.
 - **Crawl-aware**: when you crawl through a trapdoor or a one-block-high tunnel, the follow point switches to "hugging you at your own height", so the drone **comes in through the very same opening** instead of flying around outside.
 - **Teleport fallbacks**: instantly teleports to you beyond the configured distance (16 blocks by default); **waits in place when you die** and follows again after you respawn; follows you **across dimensions**.
 

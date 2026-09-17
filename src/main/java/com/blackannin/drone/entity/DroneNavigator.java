@@ -20,6 +20,8 @@ final class DroneNavigator {
     /** 跟随目标平滑系数（越小越平缓，避免视角抖动） */
     private static final double HORIZONTAL_SMOOTHING = 0.25D;
     private static final double VERTICAL_SMOOTHING = 0.4D;
+    /** 跳跃弧线最大高度（格）：跳跃约 1.25 格，超过该值视为真正的高度变化 */
+    private static final double JUMP_ARC_MAX_HEIGHT = 1.5D;
     /** 速度平滑系数：让移动加减速更柔和 */
     private static final double VELOCITY_SMOOTHING = 0.35D;
 
@@ -124,16 +126,16 @@ final class DroneNavigator {
         return this.smoothedTarget;
     }
 
-    /** 平地原地连续跳跃（水平几乎不动且高度在跳跃范围内）：忽略其上下浮动 */
-    boolean isInPlaceJump(Player owner, boolean ownerOnGround) {
-        if (ownerOnGround || this.groundAnchor == null) {
+    /**
+     * 玩家是否处于"跳跃弧线"中：在空中且相对上次落地点的高度变化在跳跃幅度内（≤1.5 格）。
+     * 与水平位移无关——跑跳、原地连跳都属于跳跃弧线，无人机保持高度不上下浮动；
+     * 创造飞行与真正的大幅升降（坠落、被弹起、电梯）不算，照常跟随。
+     */
+    boolean isJumpArc(Player owner, boolean ownerOnGround) {
+        if (ownerOnGround || this.groundAnchor == null || owner.getAbilities().flying) {
             return false;
         }
-        Vec3 pos = owner.position();
-        double dx = pos.x - this.groundAnchor.x;
-        double dz = pos.z - this.groundAnchor.z;
-        return dx * dx + dz * dz < 0.25D
-                && Math.abs(pos.y - this.groundAnchor.y) < 1.5D;
+        return Math.abs(owner.getY() - this.groundAnchor.y) < JUMP_ARC_MAX_HEIGHT;
     }
 
     /**

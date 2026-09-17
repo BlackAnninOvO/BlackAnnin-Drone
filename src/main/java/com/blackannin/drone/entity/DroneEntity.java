@@ -150,8 +150,9 @@ public class DroneEntity extends Mob implements OwnableEntity {
         if (ownerOnGround) {
             this.navigator.updateGroundAnchor(owner);
         }
-        // 正常跳跃/坠落/飞行都跟随高度；只有平地原地连续跳跃忽略上下浮动
-        boolean followHeight = ownerOnGround || !this.navigator.isInPlaceJump(owner, ownerOnGround);
+        // 落地时跟随高度（跑酷逐格升降立即生效）；空中只有"非跳跃弧线"（飞行、坠落）才跟随，
+        // 因此跑跳与原地连跳都不会带动无人机上下移动
+        boolean followHeight = ownerOnGround || !this.navigator.isJumpArc(owner, ownerOnGround);
 
         if (this.entityData.get(MANUAL_CONTROL)) {
             Vec3 target = this.navigator.smoothed(clampToOwner(owner, this.hoverTarget), followHeight);

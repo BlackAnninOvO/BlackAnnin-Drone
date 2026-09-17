@@ -1,16 +1,22 @@
 package com.blackannin.drone.client;
 
+import com.blackannin.drone.ClientConfig;
 import com.blackannin.drone.entity.DroneEntity;
 import com.blackannin.drone.network.DroneControlPayload;
 import com.blackannin.drone.network.RetrieveDronePayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 public class DroneControlScreen extends Screen {
+    /** 视场角可调范围（与配置项范围一致） */
+    private static final double FOV_MIN = 30.0D;
+    private static final double FOV_MAX = 110.0D;
+
     public DroneControlScreen() {
         super(Component.translatable("gui.blackannin_drone.drone_control.title"));
     }
@@ -46,6 +52,34 @@ public class DroneControlScreen extends Screen {
                             }
                         })
                 .bounds(centerX + 5, centerY + 60, 90, 20).build());
+
+        addFovSlider(centerX, centerY + 85);
+    }
+
+    /** 无人机视场角滑块：仅影响 OBS 无人机画面，不影响玩家视角 */
+    private void addFovSlider(int centerX, int y) {
+        double current = ClientConfig.DRONE_FOV.get();
+        this.addRenderableWidget(new AbstractSliderButton(centerX - 95, y, 190, 20,
+                fovMessage(current), (current - FOV_MIN) / (FOV_MAX - FOV_MIN)) {
+            @Override
+            protected void updateMessage() {
+                setMessage(fovMessage(valueToFov(this.value)));
+            }
+
+            @Override
+            protected void applyValue() {
+                ClientConfig.DRONE_FOV.set(valueToFov(this.value));
+                ClientConfig.SPEC.save();
+            }
+        });
+    }
+
+    private static Component fovMessage(double fov) {
+        return Component.translatable("gui.blackannin_drone.drone_control.fov", (int) Math.round(fov));
+    }
+
+    private static double valueToFov(double value) {
+        return FOV_MIN + value * (FOV_MAX - FOV_MIN);
     }
 
     private void addMoveButton(String key, int x, int y, byte action) {

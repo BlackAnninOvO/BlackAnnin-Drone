@@ -37,5 +37,16 @@
   "blackannin_drone.configuration.spoutHeight": "FPV 输出高度",
   "blackannin_drone.configuration.spoutHeight.tooltip": "推送给 OBS 的画面高度，修改后下一帧立即生效",
   "blackannin_drone.configuration.spoutLibraryPath": "SpoutLibrary.dll 路径",
-  "blackannin_drone.configuration.spoutLibraryPath.tooltip": "留空则自动搜索游戏目录 natives/SpoutLibrary.dll"
+  "blackannin_drone.configuration.spoutLibraryPath.tooltip": "留空则自动搜索游戏目录 natives/SpoutLibrary.dll",
+  "gui.blackannin_drone.drone_control.fov": "无人机视场角: %s",
+  "blackannin_drone.configuration.droneSpeedFactor": "速度联动系数",
+  "blackannin_drone.configuration.droneSpeedFactor.tooltip": "玩家移动越快无人机越快（0 = 不受影响）",
+  "blackannin_drone.configuration.droneMaxSpeed": "最大飞行速度",
+  "blackannin_drone.configuration.droneMaxSpeed.tooltip": "无人机速度上限（格/tick）",
+  "blackannin_drone.configuration.droneTeleportDistance": "强制传送距离",
+  "blackannin_drone.configuration.droneTeleportDistance.tooltip": "超过此距离自动传送回玩家身边（格）",
+  "blackannin_drone.configuration.droneFov": "无人机视场角",
+  "blackannin_drone.configuration.droneFov.tooltip": "无人机视角的 FOV，不随玩家设置变化（70 = 默认值）",
+  "blackannin_drone.configuration.spoutDebugDump": "导出推流画面(排障)",
+  "blackannin_drone.configuration.spoutDebugDump.tooltip": "把实际发给 OBS 的画面导出为游戏目录 drone_stream_debug.png"
 }

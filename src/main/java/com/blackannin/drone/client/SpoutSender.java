@@ -108,6 +108,9 @@ public final class SpoutSender {
             if (!name.equals(senderName) || senderWidth != width || senderHeight != height) {
                 if (!senderName.isEmpty()) {
                     callRelease();
+                    if (senderWidth != width || senderHeight != height) {
+                        BlackAnninsDrone.LOGGER.info("Spout 输出分辨率切换: {}x{} -> {}x{}", senderWidth, senderHeight, width, height);
+                    }
                 }
                 try (MemoryStack stack = MemoryStack.stackPush()) {
                     long namePtr = MemoryUtil.memAddress(stack.UTF8(name));

@@ -16,11 +16,19 @@ public class ClientConfig {
 
     public static final ModConfigSpec.IntValue SPOUT_WIDTH = BUILDER
             .comment("FPV 输出宽度（游戏内修改后下一帧立即生效，无需重启）")
-            .defineInRange("spoutWidth", 1280, 256, 3840);
+            .defineInRange("spoutWidth", 1920, 256, 3840);
 
     public static final ModConfigSpec.IntValue SPOUT_HEIGHT = BUILDER
             .comment("FPV 输出高度（游戏内修改后下一帧立即生效，无需重启）")
-            .defineInRange("spoutHeight", 720, 144, 2160);
+            .defineInRange("spoutHeight", 1080, 144, 2160);
+
+    public static final ModConfigSpec.DoubleValue DRONE_FOV = BUILDER
+            .comment("无人机视角的视场角（默认 70 = 我的世界默认值，不随玩家设置变化）")
+            .defineInRange("droneFov", 70.0, 30.0, 110.0);
+
+    public static final ModConfigSpec.BooleanValue SPOUT_DEBUG_DUMP = BUILDER
+            .comment("排障用：每次开始推流时把实际发送的画面导出为游戏目录下的 drone_stream_debug.png")
+            .define("spoutDebugDump", false);
 
     public static final ModConfigSpec.ConfigValue<String> SPOUT_LIBRARY_PATH = BUILDER
             .comment("SpoutLibrary.dll 的绝对路径，留空则自动搜索游戏目录 natives 等位置")

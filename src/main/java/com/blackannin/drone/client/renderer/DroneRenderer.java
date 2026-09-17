@@ -17,8 +17,9 @@ public class DroneRenderer extends MobRenderer<DroneEntity, DroneModel> {
 
     @Override
     protected void scale(DroneEntity entity, PoseStack poseStack, float partialTick) {
-        // Blockbench 实体模型原点在 y=24（1.5 格），下移以对齐碰撞箱
-        poseStack.translate(0.0F, -1.5F, 0.0F);
+        // Blockbench 实体模型导出时原点已落在实体脚下，原版渲染器的 -1.501 平移即用于该对齐，
+        // 这里不再额外偏移，使模型与碰撞箱重合。
+        // （此前多余的 -1.5 平移会把模型推离碰撞箱）
     }
 
     @Override

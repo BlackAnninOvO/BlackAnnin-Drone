@@ -37,5 +37,16 @@
   "blackannin_drone.configuration.spoutHeight": "FPV output height",
   "blackannin_drone.configuration.spoutHeight.tooltip": "Height of the frame sent to OBS, applied on the next frame",
   "blackannin_drone.configuration.spoutLibraryPath": "SpoutLibrary.dll path",
-  "blackannin_drone.configuration.spoutLibraryPath.tooltip": "Leave empty to search natives/SpoutLibrary.dll in the game directory"
+  "blackannin_drone.configuration.spoutLibraryPath.tooltip": "Leave empty to search natives/SpoutLibrary.dll in the game directory",
+  "gui.blackannin_drone.drone_control.fov": "Drone FOV: %s",
+  "blackannin_drone.configuration.droneSpeedFactor": "Speed factor",
+  "blackannin_drone.configuration.droneSpeedFactor.tooltip": "Drone speeds up with player movement (0 = unaffected)",
+  "blackannin_drone.configuration.droneMaxSpeed": "Max flight speed",
+  "blackannin_drone.configuration.droneMaxSpeed.tooltip": "Upper speed limit (blocks/tick)",
+  "blackannin_drone.configuration.droneTeleportDistance": "Teleport distance",
+  "blackannin_drone.configuration.droneTeleportDistance.tooltip": "Teleport back to the player beyond this distance (blocks)",
+  "blackannin_drone.configuration.droneFov": "Drone FOV",
+  "blackannin_drone.configuration.droneFov.tooltip": "FOV of the drone view, independent of the player setting (70 = default)",
+  "blackannin_drone.configuration.spoutDebugDump": "Dump stream frame (debug)",
+  "blackannin_drone.configuration.spoutDebugDump.tooltip": "Write the actual frame sent to OBS as drone_stream_debug.png in the game directory"
 }

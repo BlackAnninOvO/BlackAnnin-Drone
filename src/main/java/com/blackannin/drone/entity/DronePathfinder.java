@@ -1,6 +1,11 @@
 package com.blackannin.drone.entity;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
@@ -113,12 +118,32 @@ final class DronePathfinder {
         return path;
     }
 
-    /** 该格能否容纳无人机 */
+    /** 该格能否容纳无人机；关闭的木门/活板门/栅栏门可由无人机自行打开，故视为可通过 */
     private static boolean isPassable(Level level, Entity drone, BlockPos pos) {
         AABB box = new AABB(
                 pos.getX() + 0.5D - HALF_WIDTH, pos.getY(), pos.getZ() + 0.5D - HALF_WIDTH,
                 pos.getX() + 0.5D + HALF_WIDTH, pos.getY() + HEIGHT, pos.getZ() + 0.5D + HALF_WIDTH);
-        return level.noCollision(drone, box);
+        if (level.noCollision(drone, box)) {
+            return true;
+        }
+        return openedState(level.getBlockState(pos)) != null;
+    }
+
+    /**
+     * 返回该方块"被打开后"的状态；不可手动打开（铁门等）或本来已打开则返回 null。
+     * 木门/活板门/栅栏门判定使用原版方块标签，避免依赖 protected 的类型访问器。
+     */
+    static BlockState openedState(BlockState state) {
+        if (state.getBlock() instanceof DoorBlock && state.is(BlockTags.WOODEN_DOORS)) {
+            return state.getValue(DoorBlock.OPEN) ? null : state.setValue(DoorBlock.OPEN, true);
+        }
+        if (state.getBlock() instanceof TrapDoorBlock && state.is(BlockTags.WOODEN_TRAPDOORS)) {
+            return state.getValue(TrapDoorBlock.OPEN) ? null : state.setValue(TrapDoorBlock.OPEN, true);
+        }
+        if (state.getBlock() instanceof FenceGateBlock) {
+            return state.getValue(FenceGateBlock.OPEN) ? null : state.setValue(FenceGateBlock.OPEN, true);
+        }
+        return null;
     }
 
     /** 斜向/竖向跨越时不允许穿角：各轴向投影格都需可通行 */

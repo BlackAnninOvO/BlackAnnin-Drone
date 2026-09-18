@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -61,6 +62,26 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.setNoGravity(true);
         this.setNoAi(true);
         this.noPhysics = false;
+        // 无敌：仅 /kill 等可穿透无敌的伤害能杀死它；回收只能由玩家主动操作
+        this.setInvulnerable(true);
+    }
+
+    /** 免疫火焰（不燃烧、无灼烧动画与伤害） */
+    @Override
+    public boolean fireImmune() {
+        return true;
+    }
+
+    /** 除 /kill 一类可穿透无敌的伤害外全部免疫（燃烧、窒息、摔落、怪物攻击等） */
+    @Override
+    public boolean isInvulnerableTo(DamageSource source) {
+        return !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
+    }
+
+    /** 不被视作可攻击目标：怪物不会主动攻击它 */
+    @Override
+    public boolean isAttackable() {
+        return false;
     }
 
     @Override
@@ -146,6 +167,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
 
         this.navigator.tick();
+        openDoorsAlongPath();
         boolean ownerOnGround = owner.onGround();
         if (ownerOnGround) {
             this.navigator.updateGroundAnchor(owner);
@@ -167,6 +189,22 @@ public class DroneEntity extends Mob implements OwnableEntity {
             this.navigator.flyToward(target, owner);
             // 跟随时镜头朝主人面向的方向，FPV 呈现前进视角
             setYawSmooth(owner.getYRot());
+        }
+    }
+
+    /**
+     * 自动打开挡路的木门/活板门/栅栏门（寻路已把它们视为可通行），
+     * 使无人机能穿过关闭的门继续跟随；铁门等无法手动打开的不处理，交由绕障与传送兜底。
+     */
+    private void openDoorsAlongPath() {
+        AABB area = this.getBoundingBox().inflate(0.6D);
+        BlockPos min = BlockPos.containing(area.minX, area.minY, area.minZ);
+        BlockPos max = BlockPos.containing(area.maxX, area.maxY, area.maxZ);
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            BlockState opened = DronePathfinder.openedState(this.level().getBlockState(pos));
+            if (opened != null) {
+                this.level().setBlock(pos, opened, 3);
+            }
         }
     }
 

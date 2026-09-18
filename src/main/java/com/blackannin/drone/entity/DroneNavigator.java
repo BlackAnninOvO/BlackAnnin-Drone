@@ -237,7 +237,10 @@ final class DroneNavigator {
         double targetDistance = drone.position().distanceTo(target);
         this.progressAnchor = drone.position();
         this.progressTicks = 0;
-        if (targetDistance < STUCK_MIN_TARGET_DISTANCE || netDisplacement >= STUCK_NET_DISPLACEMENT) {
+        // 只有"离目标近 且 看得见玩家"才算正常跟随/悬停；
+        // 被薄墙、铁门这类挡在很近处时同样要脱困，否则会一直卡在门前
+        boolean hoveringNearby = targetDistance < STUCK_MIN_TARGET_DISTANCE && hasLineOfSight(target);
+        if (hoveringNearby || netDisplacement >= STUCK_NET_DISPLACEMENT) {
             this.rerouteAttempts = 0;
             return;
         }

@@ -23,7 +23,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **放置与回收**：手持「航拍无人机」右键放置；**潜行 + 右键点击无人机**，或使用控制面板的「回收无人机」按钮即可收回（服务端校验归属后返还物品）。
 - **悬停飞行**：无人机无重力、无 AI，始终悬浮；碰撞箱与模型严格对齐。
 - **朝向**：自动跟随模式下镜头朝你面向的方向；手动操控时镜头平滑转向移动方向（悬停时保持朝向，不会乱转）。
-- **掉落保护**：不受摔落伤害、不可推动、不会被距离卸载；玩家离线时才掉落为物品。
+- **完全无敌**：不受燃烧、窒息、摔落、爆炸、怪物攻击等任何伤害，也不会被怪物当作攻击目标；**只有玩家主动回收或 `/kill` 指令能移除它**。不可推动、不会被距离卸载；玩家离线时才掉落为物品。
 
 ### 跟随与飞行
 
@@ -40,7 +40,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **视线直飞**：与目标之间视线通畅时直接飞过去，带速度平滑。
 - **全局 A\* 寻路**：看不到目标时，以 **1 格为粒度**做 A\* 搜索（26 邻域、按无人机真实碰撞箱逐格判定通行、禁止斜向切角），因此能**穿过 1 格宽的门洞、活板门下的矮口、竖井**，也能**在封闭房间外壁找到唯一的入口**。寻路终点使用玩家自身位置（跟随点常落在墙内，会导致搜索失败）。每 10 tick 重新规划一次。
 - **局部绕障**：需要绕行时**固定一侧**沿障碍前进（避免左右反复切换导致原地打转）；候选方向包含**纯上升/下降**与该侧 0°~180°（15° 步长）的**水平与斜向**移动，统一按「这一步走完后离你最近」评分 → 每一步都取**当前可行的最短绕路**。左右都不行时会尝试上下与斜向。
-- **可通过的方块**：水、打开的门与活板门（无碰撞）直接通行；关着的门视为障碍并绕开。
+- **可通过的方块**：水、打开的门与活板门（无碰撞）直接通行；**遇到关闭的木门 / 活板门 / 栅栏门会自动打开并通过**，继续跟随；铁门等无法手动打开的方块视为障碍，绕行不成则传送。
 - **卡住自愈**：若一段时间内净位移过小（原地打转）且离你较远，会先**换侧改道**；再一段时间仍无进展则**立即传送**到你身边。所有方向都被堵死时同样立即传送。
 
 ### FPV 视角与 OBS 推流
@@ -123,7 +123,7 @@ Mod ID: `blackannin_drone` · Version: `0.3.0-1.21.1` · License: MIT
 - **Deploy & retrieve**: right-click with the *Aerial Drone* item to deploy. **Sneak + right-click the drone**, or use the **"Retrieve Drone"** button in the control panel, to stow it again (ownership is verified server-side before the item is returned).
 - **Hovering flight**: no gravity, no AI, always floating; the hitbox is precisely aligned with the model.
 - **Heading**: in follow mode the camera faces where you face; in manual control it turns smoothly toward its movement direction (it holds its heading while hovering, so the view never spins).
-- **Protected**: no fall damage, not pushable, never despawned by distance; it only drops as an item when its owner logs off.
+- **Fully invulnerable**: immune to fire, suffocation, fall, explosion and mob damage, and mobs never target it — **only you can retrieve it, or the `/kill` command can remove it**. It cannot be pushed and is never despawned by distance; it only drops as an item when its owner logs off.
 
 ### Following & Flight
 
@@ -140,7 +140,7 @@ This is where most of the work went — the drone will not just bump into walls:
 - **Line-of-sight flight**: when the path to the target is clear it simply flies there (velocity-smoothed).
 - **Global A\* pathfinding**: when the target cannot be seen, it runs an A\* search on a **1-block grid** (26-neighbourhood, passability tested against the drone's real collision box, diagonal corner-cutting forbidden). This lets it **pass through one-block-wide doorways, gaps under trapdoors and vertical shafts**, and **find the single entrance on the outer wall of a sealed room**. The search goal is your own position (the follow point often sits inside a wall, which would make the search fail). Re-planned every 10 ticks.
 - **Local obstacle avoidance**: while blocked it commits to a **fixed side** and follows the obstacle (no left/right flip-flopping that would make it spin in place). Candidates include **straight up and down** plus horizontal and diagonal moves at 0°–180° in 15° steps, all scored by "distance to you after this step" — so every step takes the **shortest currently passable detour**. If left and right both fail, up/down and diagonals are tried as well.
-- **Passable blocks**: water and opened doors/trapdoors have no collision and are flown straight through; closed doors count as obstacles and are routed around.
+- **Passable blocks**: water and opened doors/trapdoors have no collision and are flown straight through; **closed wooden doors, trapdoors and fence gates are opened automatically** so it can keep following; blocks it cannot open (iron doors) count as obstacles — routed around, or teleported past as a last resort.
 - **Self-recovery when stuck**: if it barely moves (circling) while still far from you, it **switches sides** first; if there is still no progress after another moment, it **teleports to you immediately**. When every direction is blocked it teleports right away too.
 
 ### FPV View & OBS Streaming

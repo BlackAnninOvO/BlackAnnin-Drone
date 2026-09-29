@@ -1,12 +1,16 @@
 package com.blackannin.drone.entity;
 
 import com.blackannin.drone.Config;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.List;
 
@@ -53,6 +57,12 @@ final class DroneNavigator {
     private static final double STUCK_MIN_TARGET_DISTANCE = 6.0D;
     /** 连续改道次数上限，超过则直接传送 */
     private static final int MAX_REROUTE_ATTEMPTS = 1;
+
+    /** 手动模式鼠标灵敏度：界面像素 → 角度 */
+    private static final float MANUAL_YAW_SENS = 0.45F;
+    private static final float MANUAL_PITCH_SENS = 0.35F;
+    /** 判定盒收窄量：贴墙接触不算碰撞 */
+    private static final double BOX_SHRINK = 0.05D;
 
     private final DroneEntity drone;
 
@@ -143,7 +153,9 @@ final class DroneNavigator {
      * 局部转向（视线/绕障）无法定位"封闭房间的小洞口"这类入口，必须靠全局搜索。
      */
     Vec3 routeAlongPath(Vec3 goal, Player owner) {
-        boolean blocked = !hasLineOfSight(goal);
+        // 门被强开期间必须沿 A* 路点走：此时视线已通，直飞会对准玩家身后的跟随点而撞上门框，
+        // 只有 A* 的路点是对准门洞中心的（修复"打开铁门却不进去"）
+        boolean blocked = !hasLineOfSight(goal) || drone.hasForcedOpenDoors();
         if (!blocked && drone.position().distanceToSqr(goal) < REPATH_MIN_DISTANCE * REPATH_MIN_DISTANCE) {
             this.path = List.of();
             return goal;
@@ -186,6 +198,77 @@ final class DroneNavigator {
             return;
         }
         drone.teleportToOwner(owner);
+    }
+
+    /**
+     * 手动连续飞行（v0.5.0）：键盘三轴连续输入 + 鼠标视角，
+     * 像真实无人机一样丝滑移动；撞墙时按轴分解滑行，活动半径由配置限制。
+     */
+    void flyManual(Player owner, float forward, float strafe, float up, float yawDelta, float pitchDelta) {
+        // 视角：鼠标增量直接驱动偏航/俯仰（带平滑）
+        float yaw = drone.getYRot() + yawDelta * MANUAL_YAW_SENS;
+        float pitch = Mth.clamp(drone.getXRot() + pitchDelta * MANUAL_PITCH_SENS, -89.0F, 89.0F);
+        drone.setYRot(yaw);
+        drone.setYHeadRot(yaw);
+        drone.setYBodyRot(yaw);
+        drone.setXRot(pitch);
+
+        double maxSpeed = Config.DRONE_MANUAL_SPEED.get();
+        Vec3 look = Vec3.directionFromRotation(0.0F, yaw);
+        // 朝向前方的右手侧（地图上顺时针 90°）
+        Vec3 right = new Vec3(-look.z, 0.0D, look.x);
+        Vec3 desired = new Vec3(
+                look.x * forward + right.x * strafe,
+                up,
+                look.z * forward + right.z * strafe);
+        if (desired.lengthSqr() > 1.0D) {
+            desired = desired.normalize();
+        }
+        desired = desired.scale(maxSpeed);
+        this.smoothedVelocity = this.smoothedVelocity.add(desired.subtract(this.smoothedVelocity).scale(VELOCITY_SMOOTHING));
+
+        Vec3 step = this.smoothedVelocity;
+        if (isPassable(step)) {
+            doMove(step);
+        } else {
+            // 撞墙：按轴分解滑行，保持贴墙移动的丝滑感
+            Vec3 sx = new Vec3(step.x, 0.0D, 0.0D);
+            Vec3 sy = new Vec3(0.0D, step.y, 0.0D);
+            Vec3 sz = new Vec3(0.0D, 0.0D, step.z);
+            boolean moved = false;
+            if (step.x != 0.0D && isPassable(sx)) { doMove(sx); moved = true; }
+            if (step.z != 0.0D && isPassable(sz)) { doMove(sz); moved = true; }
+            if (step.y != 0.0D && isPassable(sy)) { doMove(sy); moved = true; }
+            if (!moved) {
+                this.smoothedVelocity = Vec3.ZERO;
+            }
+        }
+        clampToOwnerRadius(owner, Config.DRONE_MANUAL_RADIUS.get());
+    }
+
+    /** 手动活动半径限制：越界位置拉回圆形/高度范围（向内移动必然可通行） */
+    private void clampToOwnerRadius(Player owner, double max) {
+        Vec3 ownerPos = owner.position();
+        Vec3 pos = drone.position();
+        Vec3 offset = pos.subtract(ownerPos);
+        Vec3 horizontal = new Vec3(offset.x, 0.0D, offset.z);
+        double dist = horizontal.length();
+        Vec3 target = pos;
+        if (dist > max && dist > 1.0E-4D) {
+            horizontal = horizontal.scale(max / dist);
+            target = ownerPos.add(horizontal.x, 0.0D, horizontal.z).add(0.0D, offset.y, 0.0D);
+        }
+        double minY = 0.2D;
+        double maxY = Math.max(Config.DRONE_FOLLOW_HEIGHT.get() + 4.0D, max);
+        double y = Mth.clamp(offset.y, minY, maxY);
+        if (offset.y != y) {
+            target = ownerPos.add(target.x - ownerPos.x - offset.x, y, target.z - ownerPos.z - offset.z).add(offset.x, 0.0D, offset.z);
+            target = new Vec3(target.x, ownerPos.y + y, target.z);
+        }
+        Vec3 correction = target.subtract(pos);
+        if (correction.lengthSqr() > 1.0E-8D && drone.level().noCollision(drone, drone.getBoundingBox().move(correction))) {
+            doMove(correction);
+        }
     }
 
     /** 朝目标直飞：带速度平滑；返回是否成功移动一步 */
@@ -238,8 +321,10 @@ final class DroneNavigator {
         this.progressAnchor = drone.position();
         this.progressTicks = 0;
         // 只有"离目标近 且 看得见玩家"才算正常跟随/悬停；
-        // 被薄墙、铁门这类挡在很近处时同样要脱困，否则会一直卡在门前
-        boolean hoveringNearby = targetDistance < STUCK_MIN_TARGET_DISTANCE && hasLineOfSight(target);
+        // 被薄墙、铁门这类挡在很近处时同样要脱困，否则会一直卡在门前；
+        // 有被强开的门时同理：门口视线虽通，但可能正贴着门框，仍需换侧/传送兜底
+        boolean hoveringNearby = targetDistance < STUCK_MIN_TARGET_DISTANCE && hasLineOfSight(target)
+                && !drone.hasForcedOpenDoors();
         if (hoveringNearby || netDisplacement >= STUCK_NET_DISPLACEMENT) {
             this.rerouteAttempts = 0;
             return;
@@ -264,12 +349,39 @@ final class DroneNavigator {
         return Mth.clamp(speed, FLY_SPEED, Config.DRONE_MAX_SPEED.get());
     }
 
-    /** 碰撞检测：目标位置是否可通行（判定盒收窄 0.05 格，避免贴墙接触被误判为碰撞） */
+    /** 碰撞检测：目标位置是否可通行（判定盒收窄，避免贴墙接触被误判为碰撞） */
     private boolean isPassable(Vec3 step) {
         if (step.lengthSqr() < 1.0E-8D) {
             return false;
         }
-        return drone.level().noCollision(drone, drone.getBoundingBox().move(step).deflate(0.05D));
+        return isBoxPassable(drone.getBoundingBox().move(step).deflate(BOX_SHRINK));
+    }
+
+    /**
+     * 判定盒内是否通行：按碰撞形状与判定盒的<b>真实相交</b>判定。
+     *
+     * <p>不能用"形状非空即阻挡"：开着的门仍带贴边薄板形状（DoorBlock 未覆写
+     * getCollisionShape，开态返回 3/16 薄板），会被整格误判为阻挡，导致无人机
+     * 打开门后反而卡在门口。门类（含铁门）本就由无人机自动打开，视为可通行。</p>
+     */
+    private boolean isBoxPassable(AABB box) {
+        BlockPos min = BlockPos.containing(box.minX, box.minY, box.minZ);
+        BlockPos max = BlockPos.containing(box.maxX, box.maxY, box.maxZ);
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            BlockState state = drone.level().getBlockState(pos);
+            VoxelShape shape = state.getCollisionShape(drone.level(), pos);
+            if (shape.isEmpty()) {
+                continue;
+            }
+            if (!shape.bounds().move(pos.getX(), pos.getY(), pos.getZ()).intersects(box)) {
+                continue;
+            }
+            if (DronePathfinder.openedState(state) != null) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     /** 执行位移（调用前需通过 isPassable 检测） */

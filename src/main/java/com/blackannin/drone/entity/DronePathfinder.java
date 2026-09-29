@@ -1,7 +1,6 @@
 package com.blackannin.drone.entity;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
@@ -130,14 +129,14 @@ final class DronePathfinder {
     }
 
     /**
-     * 返回该方块"被打开后"的状态；不可手动打开（铁门等）或本来已打开则返回 null。
-     * 木门/活板门/栅栏门判定使用原版方块标签，避免依赖 protected 的类型访问器。
+     * 返回该方块"被打开后"的状态；不是门类或本已打开则返回 null。
+     * 不区分材质：无人机是电子设备，铁门/铁活板门也会被"接入控制"直接打开穿过。
      */
     static BlockState openedState(BlockState state) {
-        if (state.getBlock() instanceof DoorBlock && state.is(BlockTags.WOODEN_DOORS)) {
+        if (state.getBlock() instanceof DoorBlock) {
             return state.getValue(DoorBlock.OPEN) ? null : state.setValue(DoorBlock.OPEN, true);
         }
-        if (state.getBlock() instanceof TrapDoorBlock && state.is(BlockTags.WOODEN_TRAPDOORS)) {
+        if (state.getBlock() instanceof TrapDoorBlock) {
             return state.getValue(TrapDoorBlock.OPEN) ? null : state.setValue(TrapDoorBlock.OPEN, true);
         }
         if (state.getBlock() instanceof FenceGateBlock) {

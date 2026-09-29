@@ -47,6 +47,7 @@ public class BlackAnninsDrone {
             .icon(() -> ModItems.AERIAL_DRONE.get().getDefaultInstance())
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.AERIAL_DRONE.get());
+                output.accept(ModItems.DRONE_REMOTE.get());
             }).build());
 
     public BlackAnninsDrone(IEventBus modEventBus, ModContainer modContainer) {
@@ -69,6 +70,8 @@ public class BlackAnninsDrone {
             // ClientTickHandler 监听游戏总线；DroneCameraRenderer 在每帧上屏后渲染无人机视角并推流
             NeoForge.EVENT_BUS.register(ClientTickHandler.class);
             NeoForge.EVENT_BUS.register(DroneCameraRenderer.class);
+            // RegisterClientCommandsEvent 在游戏总线
+            NeoForge.EVENT_BUS.register(ClientModEvents.GameBus.class);
             
             modContainer.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         }

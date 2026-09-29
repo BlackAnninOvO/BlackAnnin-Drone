@@ -1,7 +1,9 @@
 package com.blackannin.drone.entity;
 
+import com.blackannin.drone.BlackAnninsDrone;
 import com.blackannin.drone.Config;
 import com.blackannin.drone.registry.ModAttachments;
+import com.blackannin.drone.registry.ModEntities;
 import com.blackannin.drone.registry.ModItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -10,6 +12,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -25,12 +28,16 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -45,15 +52,17 @@ public class DroneEntity extends Mob implements OwnableEntity {
     private static final EntityDataAccessor<Integer> TAKEOFF_TICKS = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> MANUAL_CONTROL = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.BOOLEAN);
 
-    /** 手动指路每次移动的距离（格） */
-    private static final double MOVE_STEP = 1.0D;
     /** 玩家爬行时的跟随距离：贴近玩家，便于从同一洞口穿过 */
     private static final double CRAWL_FOLLOW_DISTANCE = 1.2D;
     /** 手动模式下转向所需的最小水平速度：低于该值视为悬停，保持当前朝向 */
-    private static final double YAW_TURN_MIN_SPEED = 0.12D;
-
-    /** 仅服务端：手动悬停点 */
-    private Vec3 hoverTarget = Vec3.ZERO;
+    /** 仅服务端：遥控器连续输入（由网络包每 tick 刷新） */
+    private float remoteForward;
+    private float remoteStrafe;
+    private float remoteUp;
+    private float remoteYawDelta;
+    private float remotePitchDelta;
+    /** 仅服务端：被无人机强行打开的门（原状态），离开后恢复 */
+    private final Map<BlockPos, BlockState> forcedOpenDoors = new HashMap<>();
     /** 仅服务端：飞行导航 */
     private final DroneNavigator navigator = new DroneNavigator(this);
 
@@ -160,14 +169,17 @@ public class DroneEntity extends Mob implements OwnableEntity {
             return;
         }
 
-        // 距离过远：强制传送回玩家身边，避免无人机被落下或卡在远处
-        double teleportDistance = Config.DRONE_TELEPORT_DISTANCE.get();
-        if (this.position().distanceToSqr(owner.position()) > teleportDistance * teleportDistance) {
-            teleportToOwner(owner);
+        // 距离过远：强制传送回玩家身边（仅自动跟随模式；手动模式由操控半径软限制，不受该设置影响）
+        if (!this.entityData.get(MANUAL_CONTROL)) {
+            double teleportDistance = Config.DRONE_TELEPORT_DISTANCE.get();
+            if (this.position().distanceToSqr(owner.position()) > teleportDistance * teleportDistance) {
+                teleportToOwner(owner);
+            }
         }
 
-        this.navigator.tick();
+        // 先开门再移动：移动当帧门就已打开，避免无人机先撞一次门板
         openDoorsAlongPath();
+        this.navigator.tick();
         boolean ownerOnGround = owner.onGround();
         if (ownerOnGround) {
             this.navigator.updateGroundAnchor(owner);
@@ -177,9 +189,10 @@ public class DroneEntity extends Mob implements OwnableEntity {
         boolean followHeight = ownerOnGround || !this.navigator.isJumpArc(owner, ownerOnGround);
 
         if (this.entityData.get(MANUAL_CONTROL)) {
-            Vec3 target = this.navigator.smoothed(clampToOwner(owner, this.hoverTarget), followHeight);
-            this.navigator.flyToward(target, owner);
-            faceMovementDirection();
+            // 手动模式视角完全由玩家的鼠标/摇杆控制
+            this.navigator.flyManual(owner, remoteForward, remoteStrafe, remoteUp, remoteYawDelta, remotePitchDelta);
+            this.remoteYawDelta = 0.0F;
+            this.remotePitchDelta = 0.0F;
         } else {
             // 玩家爬行（钻活板门/1 格高通道）时，跟随点改为贴身且与玩家同高，
             // 否则常规跟随点会落在方块里，无人机就会在外面绕飞而不是从洞口跟上
@@ -193,19 +206,55 @@ public class DroneEntity extends Mob implements OwnableEntity {
     }
 
     /**
-     * 自动打开挡路的木门/活板门/栅栏门（寻路已把它们视为可通行），
-     * 使无人机能穿过关闭的门继续跟随；铁门等无法手动打开的不处理，交由绕障与传送兜底。
+     * 自动打开挡路的所有门类（含铁门：无人机作为电子设备直接接入控制打开），
+     * 使无人机能穿过关闭的门继续跟随；离开后恢复原状态。
      */
     private void openDoorsAlongPath() {
-        AABB area = this.getBoundingBox().inflate(0.6D);
+        AABB area = this.getBoundingBox().inflate(0.9D);
         BlockPos min = BlockPos.containing(area.minX, area.minY, area.minZ);
         BlockPos max = BlockPos.containing(area.maxX, area.maxY, area.maxZ);
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
-            BlockState opened = DronePathfinder.openedState(this.level().getBlockState(pos));
-            if (opened != null) {
-                this.level().setBlock(pos, opened, 3);
+            BlockState state = this.level().getBlockState(pos);
+            BlockState opened = DronePathfinder.openedState(state);
+            if (opened == null) {
+                continue;
+            }
+            if (forcedOpenDoors.putIfAbsent(pos.immutable(), state) == null) {
+                BlackAnninsDrone.LOGGER.info("无人机强开门: {} ({})", pos, state.getBlock());
+            }
+            this.level().setBlock(pos, opened, 3);
+            if (state.getBlock() instanceof DoorBlock door) {
+                BlockPos other = state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
+                BlockState otherState = this.level().getBlockState(other);
+                BlockState otherOpened = DronePathfinder.openedState(otherState);
+                if (otherOpened != null) {
+                    forcedOpenDoors.putIfAbsent(other.immutable(), otherState);
+                    this.level().setBlock(other, otherOpened, 3);
+                }
             }
         }
+        // 离开门后恢复原状态
+        AABB clearArea = this.getBoundingBox().inflate(1.2D);
+        forcedOpenDoors.entrySet().removeIf(entry -> {
+            BlockPos pos = entry.getKey();
+            if (!clearArea.intersects(new AABB(pos))) {
+                this.level().setBlock(pos, entry.getValue(), 3);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    /** 遥控器输入（服务端）：缓存到下一次 tick 应用；任何非零输入即接管为手动模式 */
+    public void receiveRemoteInput(float forward, float strafe, float up, float yawDelta, float pitchDelta) {
+        if (forward != 0.0F || strafe != 0.0F || up != 0.0F || yawDelta != 0.0F || pitchDelta != 0.0F) {
+            this.entityData.set(MANUAL_CONTROL, true);
+        }
+        this.remoteForward = Mth.clamp(forward, -1.0F, 1.0F);
+        this.remoteStrafe = Mth.clamp(strafe, -1.0F, 1.0F);
+        this.remoteUp = Mth.clamp(up, -1.0F, 1.0F);
+        this.remoteYawDelta += yawDelta;
+        this.remotePitchDelta += pitchDelta;
     }
 
     /** 平滑朝向目标偏航角（镜头朝向） */
@@ -217,17 +266,8 @@ public class DroneEntity extends Mob implements OwnableEntity {
     }
 
     /**
-     * 手动模式：镜头朝无人机的实际移动方向。
-     * 用实际速度而非"到目标点的方向"——悬停在目标附近时残余位置抖动会让后者来回翻转，
-     * 表现为视角乱转；速度低于阈值时保持当前朝向。
+     * 手动模式视角完全由玩家的鼠标/摇杆控制（v0.5.0 依需求取消"朝移动方向转头"）。
      */
-    private void faceMovementDirection() {
-        Vec3 velocity = this.getDeltaMovement();
-        double horizontal = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-        if (horizontal > YAW_TURN_MIN_SPEED) {
-            setYawSmooth((float) Math.toDegrees(Math.atan2(-velocity.x, velocity.z)));
-        }
-    }
 
     /** 玩家是否处于爬行/低矮姿态（钻活板门、1 格高通道、游泳等） */
     private boolean isOwnerCrawling(Player owner) {
@@ -258,52 +298,44 @@ public class DroneEntity extends Mob implements OwnableEntity {
                 .add(0, Config.DRONE_FOLLOW_HEIGHT.get(), 0);
     }
 
-    /** 手动指路点限制在玩家周围最大半径内 */
-    private Vec3 clampToOwner(Player owner, Vec3 target) {
-        double max = Config.DRONE_MAX_RADIUS.get();
-        Vec3 ownerPos = owner.position();
-        Vec3 offset = target.subtract(ownerPos);
-        Vec3 horizontal = new Vec3(offset.x, 0, offset.z);
-        double dist = horizontal.length();
-        if (dist > max && dist > 1.0E-4) {
-            horizontal = horizontal.scale(max / dist);
-        }
-        double y = Mth.clamp(offset.y, 0.2D, Math.max(Config.DRONE_FOLLOW_HEIGHT.get() + 4.0, max));
-        return ownerPos.add(horizontal.x, y, horizontal.z);
-    }
-
     /** 传送到玩家跟随点，用于距离过远或长时间被阻挡 */
     void teleportToOwner(Player owner) {
-        Vec3 point = this.entityData.get(MANUAL_CONTROL)
-                ? clampToOwner(owner, this.hoverTarget)
-                : followPoint(owner);
-        this.hoverTarget = point;
+        Vec3 point = followPoint(owner);
         this.navigator.reset();
         this.teleportTo(point.x, point.y, point.z);
         this.setDeltaMovement(Vec3.ZERO);
     }
 
-    /** 控制面板/按键指路：按玩家朝向在指定方向移动一次 */
-    public void nudgeFromOwner(Player owner, byte action) {
-        Vec3 look = Vec3.directionFromRotation(0, owner.getYRot());
-        Vec3 right = new Vec3(look.z, 0, -look.x);
-        Vec3 base = this.entityData.get(MANUAL_CONTROL) ? this.hoverTarget : this.position();
-        Vec3 next = switch (action) {
-            case 1 -> base.add(look.scale(MOVE_STEP));
-            case 2 -> base.subtract(look.scale(MOVE_STEP));
-            case 3 -> base.subtract(right.scale(MOVE_STEP));
-            case 4 -> base.add(right.scale(MOVE_STEP));
-            case 5 -> base.add(0, MOVE_STEP, 0);
-            case 6 -> base.add(0, -MOVE_STEP, 0);
-            default -> base;
-        };
-        this.hoverTarget = clampToOwner(owner, next);
-        this.entityData.set(MANUAL_CONTROL, true);
+    /** 重置视角：对准玩家朝向、俯仰归零（操控台「重置视角」与「恢复跟随」时调用） */
+    public void resetView(Player owner) {
+        float yaw = owner.getYRot();
+        this.setYRot(yaw);
+        this.setYHeadRot(yaw);
+        this.setYBodyRot(yaw);
+        this.setXRot(0.0F);
+        // 同步旧值，避免渲染插值把"瞬间重置"表现成快速旋转
+        this.yRotO = yaw;
+        this.xRotO = 0.0F;
     }
 
     /** 恢复自动跟随 */
     public void stopManualControl() {
         this.entityData.set(MANUAL_CONTROL, false);
+    }
+
+    /** 进入手动模式（操控台"手动操纵"按钮/按键触发，输入到达前先切换状态） */
+    public void enterManualControl() {
+        this.entityData.set(MANUAL_CONTROL, true);
+    }
+
+    /** 是否存在被强开的门：导航需优先沿 A\* 路点对准门洞，避免视线直飞撞上门框 */
+    public boolean hasForcedOpenDoors() {
+        return !this.forcedOpenDoors.isEmpty();
+    }
+
+    /** 是否处于手动操控（客户端同步位，供操控台显示模式） */
+    public boolean isManuallyControlled() {
+        return this.entityData.get(MANUAL_CONTROL);
     }
 
     @Override
@@ -377,6 +409,24 @@ public class DroneEntity extends Mob implements OwnableEntity {
         return drones.isEmpty() ? null : drones.get(0);
     }
 
+    /** /dronespawn 命令生成：玩家前方 3 格悬空认主（管理员/快速测试用） */
+    @Nullable
+    public static DroneEntity spawnFor(ServerPlayer player) {
+        if (findOwned(player) != null) {
+            return null;
+        }
+        Vec3 look = player.getViewVector(1.0F);
+        Vec3 pos = player.position().add(look.x * 3.0D, 0.8D, look.z * 3.0D);
+        DroneEntity drone = ModEntities.AERIAL_DRONE.get().spawn((ServerLevel) player.level(),
+                ItemStack.EMPTY, player, BlockPos.containing(pos.x, pos.y, pos.z),
+                net.minecraft.world.entity.MobSpawnType.COMMAND, true, true);
+        if (drone != null) {
+            drone.setOwner(player);
+            drone.moveTo(pos.x, pos.y, pos.z, player.getYRot(), 0.0F);
+        }
+        return drone;
+    }
+
     @Override
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
@@ -385,9 +435,6 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
         compound.putInt("TakeoffTicks", this.entityData.get(TAKEOFF_TICKS));
         compound.putBoolean("ManualControl", this.entityData.get(MANUAL_CONTROL));
-        compound.putDouble("HoverX", this.hoverTarget.x);
-        compound.putDouble("HoverY", this.hoverTarget.y);
-        compound.putDouble("HoverZ", this.hoverTarget.z);
     }
 
     @Override
@@ -398,6 +445,5 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
         this.entityData.set(TAKEOFF_TICKS, compound.getInt("TakeoffTicks"));
         this.entityData.set(MANUAL_CONTROL, compound.getBoolean("ManualControl"));
-        this.hoverTarget = new Vec3(compound.getDouble("HoverX"), compound.getDouble("HoverY"), compound.getDouble("HoverZ"));
     }
 }

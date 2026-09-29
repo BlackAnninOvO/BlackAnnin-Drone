@@ -12,9 +12,9 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 ## 简介
 
-**BlackAnnin的无人机** 添加了一架可收回的航拍无人机。放飞后它会悬浮跟随着你飞行，能自主绕过障碍、穿过门洞与矮通道找到你；同时它搭载的摄像头画面会以**原版渲染管线**渲染，并通过 **Spout2** 实时发送给 OBS —— 适合直播、录制航拍镜头。
+**BlackAnnin的无人机** 添加了一架可收回的航拍无人机。放飞后它会悬浮跟随着你飞行，能自主绕过障碍、穿过门洞与矮通道找到你；想亲自掌舵时，掏出**无人机遥控器**（或按下 J 键），用键盘和鼠标像操作真实穿越机一样**丝滑地**驾驶它，遥测面板上罗盘、人工地平仪、高度与速度一目了然。它的摄像头画面以**原版渲染管线**渲染，并通过 **Spout2** 实时发送给 OBS —— 直播、录航拍镜头，都随你。
 
-模组 ID：`blackannin_drone` ｜ 版本：`0.3.0-1.21.1` ｜ 协议：MIT
+模组 ID：`blackannin_drone` ｜ 版本：`0.5.0-1.21.1` ｜ 协议：MIT
 
 ## 功能特性
 
@@ -40,7 +40,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **视线直飞**：与目标之间视线通畅时直接飞过去，带速度平滑。
 - **全局 A\* 寻路**：看不到目标时，以 **1 格为粒度**做 A\* 搜索（26 邻域、按无人机真实碰撞箱逐格判定通行、禁止斜向切角），因此能**穿过 1 格宽的门洞、活板门下的矮口、竖井**，也能**在封闭房间外壁找到唯一的入口**。寻路终点使用玩家自身位置（跟随点常落在墙内，会导致搜索失败）。每 10 tick 重新规划一次。
 - **局部绕障**：需要绕行时**固定一侧**沿障碍前进（避免左右反复切换导致原地打转）；候选方向包含**纯上升/下降**与该侧 0°~180°（15° 步长）的**水平与斜向**移动，统一按「这一步走完后离你最近」评分 → 每一步都取**当前可行的最短绕路**。左右都不行时会尝试上下与斜向。
-- **可通过的方块**：水、打开的门与活板门（无碰撞）直接通行；**遇到关闭的木门 / 活板门 / 栅栏门会自动打开并通过**，继续跟随；铁门等无法手动打开的方块视为障碍，绕行不成则传送。
+- **可通过的方块**：水、打开的门与活板门（无碰撞）直接通行；**遇到关闭的木门 / 活板门 / 栅栏门会自动打开并通过**，继续跟随；**铁门这类没有钥匙也打不开的方块，无人机会直接接入电路控制把它打开**——穿过去之后自动还原，就像一台真正的电子设备那样。
 - **卡住自愈**：若一段时间内净位移过小（原地打转）且离你较远，会先**换侧改道**；再一段时间仍无进展则**立即传送**到你身边。所有方向都被堵死时同样立即传送。
 
 ### FPV 视角与 OBS 推流
@@ -51,15 +51,16 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **独立视场角**：无人机视角默认 **70**（我的世界默认值），不随你的视场角或疾跑变化；可用控制面板的滑块在 30~110 之间实时调节。
 - **排障开关**：开启 `spoutDebugDump` 后，每次开始推流会把**实际发送给 OBS 的那一帧**导出为游戏目录下的 `drone_stream_debug.png`，便于判断问题出在模组侧还是 OBS 侧。
 
-### 控制面板与按键
+### 无人机遥控器与操控台（v0.5.0 重制）
 
-- **按键**：默认 `J` 打开「无人机控制面板」（可在按键设置中修改）。
-- **面板内容**：
-  - 方向操控：向前 / 向后 / 向左 / 向右 / 升高 / 降低（每次移动 1 格，限制在最大活动半径内）
-  - **恢复跟随**：结束手动操控，回到自动跟随
-  - **回收无人机**：立即收回并返还物品
-  - **无人机视场角滑块**：实时调节 FPV 视场角
+- **无人机遥控器**：新增物品（创造物品栏可取）。手持**右键**即可打开操控台；默认按键 `J` 也能打开；还可以用指令 `/droneui` 直接呼出。物品采用 BlockBench 制作的 3D 模型，手持、物品栏与掉落物展示姿态均已调好。
+- **手动接管制**：打开面板默认处于"观察"状态（无人机继续自动跟随），点击**「手动操纵」**按钮或按 `K` 才会接管；接管后 `WASD` 三轴连续移动、`空格`/`左Shift` 升降——按住就持续飞行，加减速平滑，撞墙自动贴墙滑行。「手动操纵」与**「恢复跟随」**（或 `R`）是两个独立按钮、按状态互相点亮，交还控制权后鼠标怎么动都不会误接管。手动模式活动半径约 15 格，靠近边界会被柔性拉回。
+- **两种视角模式**（面板切换或按 `V`）：**鼠标直接控制**——接管后自动锁定光标，移动鼠标即可**无限旋转**视角，完全不受窗口边界限制；此时摇杆不再显示，面板底部的提示会变成「`V` 解锁鼠标（切换为摇杆视角）」，配合 `R` 恢复跟随、`X` 回收即可完成全部操作；**摇杆渐进控制**——拖动面板左下角的摇杆，视角以角速度缓慢跟随、松手自动回中（下拉为低头），光标正常显示可拖动 UI。摇杆灵敏度在面板内实时拖动调节（0.5~12）。
+- **航测风格操控台**：顶部 LINK 连接状态灯；滚动罗盘刻度带（N/E/S/W）；**人工地平仪**（分割线随俯仰滚动）；右侧遥测中英双语实时刷新——模式 MODE、高度 ALT、距离 DIST、水平速度 H.SPD、垂直速度 V.SPD、航向 HDG、坐标 POS。
+- **「重置视角」按钮（或按 `C`）**：把无人机视角对准你本人面向的方向、俯仰归零，飞迷糊时一键回正；点击**「恢复跟随」时也会自动初始化视角**，手动模式遗留的朝向不会带进跟随视角。
+- **`X` 回收无人机**：收回并返还物品；`ESC` 关闭面板后无人机会原地悬停待命。
 - **快捷回收**：潜行时右键点击无人机本体也可收回。
+- **管理员指令**：`/dronespawn` 在准星方向生成一台已认主的无人机（需要权限等级 2，快速测试很方便）。
 
 ## 配置项
 
@@ -70,10 +71,11 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 | `droneFollowDistance` | 3.0 | 跟随距离（格） |
 | `droneFollowHeight` | 1.0 | 跟随高度（格） |
 | `droneTakeoffDelay` | 40 | 放置后起飞延迟（tick） |
-| `droneMaxRadius` | 5.0 | 手动操控时的最大活动半径（格） |
 | `droneSpeedFactor` | 2.5 | 玩家速度对无人机速度的影响系数（0 = 不受影响） |
 | `droneMaxSpeed` | 3.0 | 无人机最高飞行速度（格/tick） |
-| `droneTeleportDistance` | 16.0 | 超过该距离强制传送回玩家身边（格） |
+| `droneManualSpeed` | 0.5 | 手动操控模式的飞行速度上限（格/tick，可调 0.1~2.0；默认 0.5 约合 10 格/秒，想要更快就调大） |
+| `droneManualRadius` | 64.0 | 手动操控模式的活动半径（格），可调上限 **128**；独立于强制传送距离 |
+| `droneTeleportDistance` | 16.0 | 超过该距离强制传送回玩家身边（格）；**仅自动跟随模式生效**，手动模式由活动半径柔性限制 |
 
 **客户端配置（`config/blackannin_drone-client.toml`）**
 
@@ -112,9 +114,9 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 ## Introduction
 
-**BlackAnnin's Drone** adds a retrievable aerial drone to Minecraft. Once deployed it hovers and follows you, navigates around obstacles, squeezes through doorways and crawl spaces to reach you, and renders its camera feed through the **vanilla render pipeline** while streaming it to OBS in real time over **Spout2** — perfect for live streams and cinematic aerial shots.
+**BlackAnnin's Drone** adds a retrievable aerial drone to Minecraft. Once deployed it hovers and follows you, navigates around obstacles, squeezes through doorways and crawl spaces to reach you. And when you feel like taking the stick yourself, pull out the **Drone Remote** (or press `J`) and fly it with your keyboard and mouse, as smooth as a real FPV quad — compass, artificial horizon, altitude and speed all live on the telemetry panel. Its camera feed is rendered through the **vanilla render pipeline** and streamed to OBS in real time over **Spout2** — great for live streams and cinematic aerial shots.
 
-Mod ID: `blackannin_drone` · Version: `0.3.0-1.21.1` · License: MIT
+Mod ID: `blackannin_drone` · Version: `0.5.0-1.21.1` · License: MIT
 
 ## Features
 
@@ -140,7 +142,7 @@ This is where most of the work went — the drone will not just bump into walls:
 - **Line-of-sight flight**: when the path to the target is clear it simply flies there (velocity-smoothed).
 - **Global A\* pathfinding**: when the target cannot be seen, it runs an A\* search on a **1-block grid** (26-neighbourhood, passability tested against the drone's real collision box, diagonal corner-cutting forbidden). This lets it **pass through one-block-wide doorways, gaps under trapdoors and vertical shafts**, and **find the single entrance on the outer wall of a sealed room**. The search goal is your own position (the follow point often sits inside a wall, which would make the search fail). Re-planned every 10 ticks.
 - **Local obstacle avoidance**: while blocked it commits to a **fixed side** and follows the obstacle (no left/right flip-flopping that would make it spin in place). Candidates include **straight up and down** plus horizontal and diagonal moves at 0°–180° in 15° steps, all scored by "distance to you after this step" — so every step takes the **shortest currently passable detour**. If left and right both fail, up/down and diagonals are tried as well.
-- **Passable blocks**: water and opened doors/trapdoors have no collision and are flown straight through; **closed wooden doors, trapdoors and fence gates are opened automatically** so it can keep following; blocks it cannot open (iron doors) count as obstacles — routed around, or teleported past as a last resort.
+- **Passable blocks**: water and opened doors/trapdoors have no collision and are flown straight through; **closed wooden doors, trapdoors and fence gates are opened automatically** so it can keep following; and blocks you could never open by hand — **iron doors — are wired open like a proper electronic device**: the drone opens them, flies through, and restores them on the way out.
 - **Self-recovery when stuck**: if it barely moves (circling) while still far from you, it **switches sides** first; if there is still no progress after another moment, it **teleports to you immediately**. When every direction is blocked it teleports right away too.
 
 ### FPV View & OBS Streaming
@@ -151,15 +153,16 @@ This is where most of the work went — the drone will not just bump into walls:
 - **Independent FOV**: the drone view defaults to **70** (the Minecraft default) and is unaffected by your own FOV or sprinting. Adjustable live between 30 and 110 with the slider in the control panel.
 - **Debug option**: enable `spoutDebugDump` to export the **exact frame sent to OBS** as `drone_stream_debug.png` in the game directory — ideal for telling whether a problem lies in the mod or in OBS.
 
-### Controls
+### Drone Remote & Console (reworked in v0.5.0)
 
-- **Key binding**: `J` (configurable) opens the **Drone Control Panel**.
-- **Panel**:
-  - Movement: forward / backward / left / right / up / down (1 block per press, clamped to the maximum radius)
-  - **Reset Follow**: leave manual control and resume automatic following
-  - **Retrieve Drone**: stow the drone and get the item back
-  - **Drone FOV slider**: adjust the first-person field of view live
+- **Drone Remote**: a new item (also in the creative inventory). **Right-click** it to open the drone console; the `J` key (configurable) does the same, and so does the `/droneui` command. The item uses a 3D BlockBench model, with display poses tuned for hand, inventory, ground and frames.
+- **Take-control gating**: the console opens in an observe state (the drone keeps following automatically); only after clicking **Take Control** or pressing `K` do the controls respond — `WASD` for continuous three-axis movement, `Space`/`Left Shift` to climb or descend. Hold a key and it **keeps flying**, with smoothed acceleration and deceleration; bumping into a wall makes it slide along it. Click **Reset Follow** or press `R` to hand control back for good — moving the mouse afterwards will never re-take it. Manual range is about 15 blocks, softly pulled back near the boundary.
+- **Two view modes** (switch on the panel or with `V`): **Mouse** — the cursor is locked once you take control, so the mouse rotates the view endlessly with no window-edge limit; the joystick is hidden and the hint line becomes "`V` unlock the mouse (switch to stick view)", with `R` to reset follow and `X` to retrieve. **Stick** — drag the joystick in the lower-left corner; the view follows its deflection at an adjustable rate and re-centers on release (pull down to pitch down), and the cursor stays visible for the UI. Stick sensitivity is a live slider (0.5–12).
+- **Avionics-style console**: a `LINK` status lamp on top; a scrolling compass ribbon (N/E/S/W); an **artificial horizon** whose split line rolls with pitch; and bilingual live telemetry on the right — MODE, ALT, DIST, H.SPD, V.SPD, HDG and POS.
+- **Reset View** button (or press `C`): snaps the drone's view to the direction you are facing with a level pitch — one tap to re-orient when you lose your bearings; clicking **Reset Follow** also initializes the view, so the heading left over from manual flight never carries into follow mode.
+- **`X` retrieves** the drone and returns the item; after closing with `ESC` the drone hovers in place, standing by.
 - **Quick retrieve**: sneak + right-click the drone itself.
+- **Admin command**: `/dronespawn` spawns an owned drone a few blocks ahead (permission level 2 — handy for quick testing).
 
 ## Configuration
 
@@ -170,10 +173,11 @@ This is where most of the work went — the drone will not just bump into walls:
 | `droneFollowDistance` | 3.0 | Follow distance (blocks) |
 | `droneFollowHeight` | 1.0 | Follow height (blocks) |
 | `droneTakeoffDelay` | 40 | Delay before takeoff after placement (ticks) |
-| `droneMaxRadius` | 5.0 | Maximum radius from the owner in manual control (blocks) |
 | `droneSpeedFactor` | 2.5 | How much the owner's speed affects the drone (0 = unaffected) |
 | `droneMaxSpeed` | 3.0 | Maximum flight speed (blocks/tick) |
-| `droneTeleportDistance` | 16.0 | Teleport back to the owner beyond this distance (blocks) |
+| `droneManualSpeed` | 0.5 | Manual-mode top speed (blocks/tick, tunable 0.1–2.0; the 0.5 default is about 10 blocks/s — raise it if you want more punch) |
+| `droneManualRadius` | 64.0 | Manual-mode operating radius (blocks), up to **128**; independent of the teleport distance |
+| `droneTeleportDistance` | 16.0 | Teleport back to the owner beyond this distance (blocks); **follow mode only** — manual mode is softly bounded by its own radius |
 
 **Client (`config/blackannin_drone-client.toml`)**
 

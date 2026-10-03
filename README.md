@@ -86,6 +86,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 | `spoutWidth` / `spoutHeight` | 1920 / 1080 | 输出分辨率（改动下一帧生效） |
 | `spoutLibraryPath` | 空 | SpoutLibrary.dll 路径，留空自动搜索 |
 | `droneFov` | 70.0 | 无人机视角视场角（独立于玩家设置） |
+| `spoutKeepAspect` | true | 保持窗口宽高比：非输出比例时画面居中缩放，四周为**全透明**（便于 OBS 叠加合成，而非黑边） |
 | `spoutDebugDump` | false | 排障：导出实际发送的帧为 PNG |
 
 ## 安装要求
@@ -94,9 +95,10 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - 使用推流功能需要：**Windows** 系统 + OBS 的 **[Spout2 插件（obs-spout2-plugin）](https://github.com/Off-World-Live/obs-spout2-plugin)**（`SpoutLibrary.dll` 会随模组自动释放到游戏目录，也可在配置中指定路径）
 - 仅玩游戏不推流时无需任何额外依赖（可在客户端配置中关闭 `spoutEnabled`）
 
-## 已知限制
+## 光影兼容与已知限制
 
-- **光影 / Sodium**：无人机视角需要「一帧内再渲染一次世界」，这与 Iris/Sodium 的渲染管线存在冲突，光影或 Sodium 环境下**无人机画面可能渲染异常**（玩家自身画面不受影响）。当前版本针对**原版渲染**做了完整验证，建议不装光影或 Sodium 时使用推流功能。
+- **光影兼容（v0.6.0）**：已适配 Iris 光影管线——开启光影后，无人机会用一个**完整的第二渲染管线**成像（gbuffer + composite 合成），玩家视角与无人机视角**都带完整光影效果**，玩家画面不会出现任何来自无人机视角的残留。已在 **Iris 1.8.14 + Sodium 0.8.13 + Complementary Reimagined / Euphoria Patches 1.10.5** 组合下验证通过。
+- **性能开销**：开启光影时每帧会渲染两次世界（玩家一遍、无人机一遍），开销约为无光影时的两倍。可在客户端配置中将 `spoutEveryNFrames` 设为 `2`（无人机画面 30fps）以减半该项开销，OBS 侧会自动保持上一帧画面。
 - **OBS 端**：Spout 源会缓存上一次收到的纹理，改动分辨率或发送器后若画面不更新，请在 OBS 中删除该源并重新添加。
 
 ## 从源码构建
@@ -188,6 +190,7 @@ This is where most of the work went — the drone will not just bump into walls:
 | `spoutWidth` / `spoutHeight` | 1920 / 1080 | Output resolution (applied on the next frame) |
 | `spoutLibraryPath` | empty | Path to SpoutLibrary.dll; empty = auto-detect |
 | `droneFov` | 70.0 | Drone view FOV (independent of the player setting) |
+| `spoutKeepAspect` | true | Keep the window aspect ratio: the frame is centered and any leftover area is **fully transparent** (for compositing in OBS, instead of black bars) |
 | `spoutDebugDump` | false | Debug: write the actual sent frame to a PNG |
 
 ## Requirements
@@ -196,9 +199,10 @@ This is where most of the work went — the drone will not just bump into walls:
 - For streaming: **Windows** and the **[Spout2 plugin for OBS (obs-spout2-plugin)](https://github.com/Off-World-Live/obs-spout2-plugin)** (`SpoutLibrary.dll` is extracted into the game directory automatically; a custom path can be set in the config)
 - No extra dependency for normal play — simply disable `spoutEnabled` in the client config if you do not stream
 
-## Known Limitations
+## Shader Compatibility & Known Limitations
 
-- **Shaders / Sodium**: the drone view requires rendering the world a second time per frame, which conflicts with the Iris/Sodium pipeline — **the drone feed may render incorrectly with shaders or Sodium installed** (your own view is unaffected). This release is fully validated on **vanilla rendering**; use the streaming feature without shaders or Sodium.
+- **Shader compatibility (v0.6.0)**: the Iris shader pipeline is now fully supported — with shaders enabled, the drone renders through a **complete second pipeline** (gbuffer + composite), so **both your view and the drone feed carry the full shader look**, with no residue from the drone's view ever leaking into your own screen. Validated with **Iris 1.8.14 + Sodium 0.8.13 + Complementary Reimagined / Euphoria Patches 1.10.5**.
+- **Performance cost**: with shaders on, the world is rendered twice per frame (once for you, once for the drone), roughly doubling GPU load. Set `spoutEveryNFrames` to `2` in the client config (drone feed at 30fps) to halve it — OBS keeps showing the last frame between updates.
 - **OBS side**: a Spout source caches the last texture it received. If the picture does not update after changing the resolution or sender, remove the source in OBS and add it again.
 
 ## Building from Source

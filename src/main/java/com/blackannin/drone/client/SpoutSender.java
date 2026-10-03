@@ -122,7 +122,8 @@ public final class SpoutSender {
                 senderName = name;
                 senderWidth = width;
                 senderHeight = height;
-                // 输出分辨率写入日志：OBS 的 Spout 源需按此尺寸（或重新添加源）才能满屏无黑边
+                // 输出分辨率写入日志：OBS 的 Spout 源需按此尺寸（或重新添加源）才能满屏；
+                // 画面按窗口宽高比居中，四周多余区域为全透明（spoutKeepAspect）
                 BlackAnninsDrone.LOGGER.info("Spout 输出分辨率已就绪: {}x{}（发送器 {}）", width, height, name);
             }
             callSendTexture(textureId, GL11.GL_TEXTURE_2D, width, height, false, 0);

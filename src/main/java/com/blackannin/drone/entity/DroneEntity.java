@@ -144,15 +144,41 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
 
         Player owner = getOwner();
-        if (owner == null) {
-            // 玩家离线：掉落为物品并移除，避免留下无人认领的实体
-            dropAsItem();
-            this.discard();
+        if (owner == null && this.level() instanceof ServerLevel serverLevel) {
+            // owner 为空有两种情况：玩家真的离线，或玩家正在跨维度传送
+            // （旧维度里 getPlayerByUUID 已找不到玩家，但玩家仍在线）。
+            // 跨维度时不能销毁——传送玩家所在维度后由跨维度跟随逻辑接管。
+            UUID ownerId = this.getOwnerUUID();
+            Player online = ownerId == null ? null
+                    : serverLevel.getServer().getPlayerList().getPlayer(ownerId);
+            if (online == null) {
+                // 玩家离线：掉落为物品并移除，避免留下无人认领的实体
+                dropAsItem();
+                this.discard();
+                return;
+            }
+            if (online.level() instanceof ServerLevel target
+                    && !target.dimension().equals(this.level().dimension())) {
+                // 玩家已进入另一个维度：跟随过去
+                com.blackannin.drone.BlackAnninsDrone.LOGGER.info("[跨维度] tick轮询传送: {} -> {}",
+                        this.level().dimension().location(), target.dimension().location());
+                this.teleportTo(target, online.getX(), online.getY() + Config.DRONE_FOLLOW_HEIGHT.get(),
+                        online.getZ(), Set.of(), this.getYRot(), this.getXRot());
+            }
+            // 同维度但 owner 暂不可得（极短窗口）：原地悬停等待下一 tick
             return;
         }
         if (!owner.isAlive()) {
             // 玩家死亡：原地悬停等待复活，复活后由下方逻辑自动跟过去
             this.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        // 孤儿检测：玩家的"当前无人机"附件指向别的实体时，自己是跨维度时序遗留的孤儿，
+        // 主动掉落为物品，避免与当前无人机同时存在（旧维度遗留 + 新放置的组合场景）
+        java.util.Optional<UUID> active = owner.getData(ModAttachments.ACTIVE_DRONE.get());
+        if (active.isPresent() && !active.get().equals(this.getUUID())) {
+            dropAsItem();
+            this.discard();
             return;
         }
         if (!owner.level().dimension().equals(this.level().dimension()) && owner.level() instanceof ServerLevel target) {
@@ -304,6 +330,16 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.navigator.reset();
         this.teleportTo(point.x, point.y, point.z);
         this.setDeltaMovement(Vec3.ZERO);
+    }
+
+    /**
+     * 无人机不使用传送门：vanilla 的传送门传送会与跨维度跟随逻辑互相干扰——
+     * 无人机跟随中穿过传送门时被 vanilla 传走，跟随逻辑又把它拉回玩家维度，
+     * 循环产生多个实体且旧的被移除（表现为无人机消失/多机跟随）。
+     * 玩家的跨维度跟随由 tick 中的 owner==null 分支统一处理。
+     */
+    @Override
+    protected void handlePortal() {
     }
 
     /** 重置视角：对准玩家朝向、俯仰归零（操控台「重置视角」与「恢复跟随」时调用） */

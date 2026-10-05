@@ -1,5 +1,6 @@
 package com.blackannin.drone.client;
 
+import com.blackannin.drone.ClientConfig;
 import com.blackannin.drone.entity.DroneEntity;
 import com.blackannin.drone.network.RemoteControlPayload;
 import com.blackannin.drone.network.RetrieveDronePayload;
@@ -92,6 +93,9 @@ public class DroneControlScreen extends Screen {
         retrieveButton = new FlatButton(bx + 212, by, 98, 18, "gui.blackannin_drone.drone_control.retrieve", this::retrieveDrone);
         modeButton = new FlatButton(px + 66, py + 128, 72, 16, "gui.blackannin_drone.drone_control.mode_mouse", this::toggleStickMode);
         resetViewButton = new FlatButton(px + 146, py + 128, 86, 16, "gui.blackannin_drone.drone_control.reset_view", this::resetView);
+        // 默认视角模式取自客户端配置（默认摇杆/手柄模式），面板重开或窗口调整后保持一致
+        this.stickMode = ClientConfig.STICK_VIEW_MODE.get();
+        modeButton.setLabel(modeLabel(this.stickMode));
         syncButtons();
     }
 
@@ -120,17 +124,22 @@ public class DroneControlScreen extends Screen {
         PacketDistributor.sendToServer(new RemoteControlPayload(0, 0, 0, 0, 0, RemoteControlPayload.FLAG_RESET_VIEW));
     }
 
-    /** 切换摇杆/鼠标视角模式 */
+    /** 切换摇杆/鼠标视角模式（选择写入客户端配置，下次进入沿用） */
     private void toggleStickMode() {
         stickMode = !stickMode;
         stickX = 0;
         stickY = 0;
         pendingYaw = 0;
         pendingPitch = 0;
-        modeButton.setLabel(Component.translatable(stickMode
-                ? "gui.blackannin_drone.drone_control.mode_stick"
-                : "gui.blackannin_drone.drone_control.mode_mouse"));
+        modeButton.setLabel(modeLabel(stickMode));
+        ClientConfig.STICK_VIEW_MODE.set(stickMode);
         updateCursorLock();
+    }
+
+    private static Component modeLabel(boolean stick) {
+        return Component.translatable(stick
+                ? "gui.blackannin_drone.drone_control.mode_stick"
+                : "gui.blackannin_drone.drone_control.mode_mouse");
     }
 
     /** 根据接管与视角模式锁定/释放光标：鼠标模式接管中锁定，获得无限旋转的相对增量 */

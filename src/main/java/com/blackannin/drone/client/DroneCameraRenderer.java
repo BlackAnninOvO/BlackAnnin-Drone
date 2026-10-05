@@ -5,7 +5,6 @@ import com.blackannin.drone.ClientConfig;
 import com.blackannin.drone.entity.DroneEntity;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.GlStateManager;
 import net.minecraft.client.Camera;
 import net.minecraft.client.CameraType;
@@ -24,10 +23,9 @@ import org.lwjgl.opengl.GL30;
  * 再用完整渲染管线渲染无人机视角（Iris 存在时走第二个完整光影管线），拷贝到固定输出分辨率
  * 推送给 OBS，最后恢复主渲染目标——屏幕上玩家看到的画面与未开启推流时完全一致。
  *
- * <p>关键：全程不读写主渲染目标，玩家自己的画面与 HUD 由原版渲染一次、完全不受本模组影响。
- * {@link com.blackannin.drone.mixin.client.MinecraftMixin} 在无人机渲染期间把
- * {@code getMainRenderTarget()} 重定向到无人机 FBO，使渲染管线写入正确目标；
- * 无人机 FBO 与窗口同尺寸，避免渲染途中视口变化导致画面残缺。</p>
+ * <p>要点：玩家自己的画面与 HUD 由原版渲染一次、推流结束后从备份完整恢复，
+ * 完全不受本模组影响；无人机视角复用主渲染目标做第二遍渲染（Sodium/Iris 只认它），
+ * 再 blit 到固定分辨率的推流帧。本模组不使用 mixin、不重定向渲染目标。</p>
  */
 public final class DroneCameraRenderer {
     private static final int ERROR_LOG_INTERVAL = 600;
@@ -63,16 +61,25 @@ public final class DroneCameraRenderer {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null || !ClientConfig.SPOUT_ENABLED.get()) {
+        if (!ClientConfig.SPOUT_ENABLED.get()) {
+            // 关闭推流：连同 Spout 发送端一起注销（OBS 侧源随即显示为断开）
             destroy();
+        } else if (mc.level == null || mc.player == null) {
+            // 退出世界：只释放渲染目标。Spout 发送端保持注册到进程退出（由 JVM 关闭钩子注销），
+            // 进程内重进世界直接复用同名发送器，避免 Spout 另建 *_1 副本、OBS 残留定格旧源
+            destroyRenderTargets();
         }
     }
 
     @SubscribeEvent
     public static void onRenderFramePost(RenderFrameEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null || !ClientConfig.SPOUT_ENABLED.get()) {
+        if (!ClientConfig.SPOUT_ENABLED.get()) {
             destroy();
+            return;
+        }
+        if (mc.level == null || mc.player == null) {
+            destroyRenderTargets();
             return;
         }
         DroneEntity drone = DroneEntity.findOwned(mc.player);
@@ -312,7 +319,8 @@ public final class DroneCameraRenderer {
         }
     }
 
-    private static void destroy() {
+    /** 退出世界/回标题界面：释放渲染目标，但保留 Spout 发送端注册（进程内复用，防止 *_1 副本） */
+    private static void destroyRenderTargets() {
         streamLogged = false;
         if (saveTarget != null) {
             saveTarget.destroyBuffers();
@@ -322,6 +330,11 @@ public final class DroneCameraRenderer {
             backupTarget.destroyBuffers();
             backupTarget = null;
         }
+    }
+
+    /** 关闭推流：释放渲染目标并注销 Spout 发送端 */
+    private static void destroy() {
+        destroyRenderTargets();
         SpoutSender.release();
     }
 }

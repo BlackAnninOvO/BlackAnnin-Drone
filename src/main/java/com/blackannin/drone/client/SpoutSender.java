@@ -43,6 +43,10 @@ import static org.lwjgl.system.libffi.LibFFI.ffi_type_void;
 public final class SpoutSender {
     private static boolean attempted;
     private static boolean available;
+    /** 当前是否存在已创建、未释放的 Spout 发送端（available 因发送失败置 false 后它仍为 true） */
+    private static boolean senderActive;
+    /** 是否已注册 JVM 关闭钩子（仅需注册一次） */
+    private static boolean hookRegistered;
     private static SharedLibrary library;
     private static long spout;
     private static long createSenderFn;
@@ -91,6 +95,7 @@ public final class SpoutSender {
             releaseSenderFn = MemoryUtil.memGetAddress(vtable + POINTER_SIZE);
             sendTextureFn = MemoryUtil.memGetAddress(vtable + 3L * POINTER_SIZE);
             available = true;
+            registerShutdownHook();
             BlackAnninsDrone.LOGGER.info("Spout 发送器已加载: {}", dll);
         } catch (Throwable t) {
             BlackAnninsDrone.LOGGER.warn("Spout 初始化失败: {}", t.toString());
@@ -108,6 +113,7 @@ public final class SpoutSender {
             if (!name.equals(senderName) || senderWidth != width || senderHeight != height) {
                 if (!senderName.isEmpty()) {
                     callRelease();
+                    senderActive = false;
                     if (senderWidth != width || senderHeight != height) {
                         BlackAnninsDrone.LOGGER.info("Spout 输出分辨率切换: {}x{} -> {}x{}", senderWidth, senderHeight, width, height);
                     }
@@ -122,6 +128,7 @@ public final class SpoutSender {
                 senderName = name;
                 senderWidth = width;
                 senderHeight = height;
+                senderActive = true;
                 // 输出分辨率写入日志：OBS 的 Spout 源需按此尺寸（或重新添加源）才能满屏；
                 // 画面按窗口宽高比居中，四周多余区域为全透明（spoutKeepAspect）
                 BlackAnninsDrone.LOGGER.info("Spout 输出分辨率已就绪: {}x{}（发送器 {}）", width, height, name);
@@ -129,21 +136,43 @@ public final class SpoutSender {
             callSendTexture(textureId, GL11.GL_TEXTURE_2D, width, height, false, 0);
         } catch (Throwable t) {
             BlackAnninsDrone.LOGGER.warn("Spout 发送失败: {}", t.toString());
+            // 本会话停止重试；发送端仍由 senderActive 跟踪，release() 时会被真正释放
             available = false;
         }
     }
 
+    /**
+     * 释放发送端并复位初始化门闩。
+     *
+     * <p>available 已为 false（如发送失败后）时仍必须执行：此时 native 侧发送端可能仍被
+     * 注册（OBS 侧源还在），跳过 ReleaseSender 会造成 native 资源泄漏。
+     * 复位 attempted 后，关闭再打开推流可重新初始化，无需重启游戏。</p>
+     */
     public static void release() {
-        if (!available || spout == NULL) {
-            return;
+        if (spout != NULL && releaseSenderFn != NULL && senderActive) {
+            try {
+                callRelease();
+            } catch (Throwable ignored) {
+            }
         }
-        try {
-            callRelease();
-        } catch (Throwable ignored) {
-        }
+        senderActive = false;
         senderName = "";
         senderWidth = 0;
         senderHeight = 0;
+        attempted = false;
+    }
+
+    /**
+     * 注册 JVM 关闭钩子：正常退出（窗口关闭/游戏内退出）时注销 Spout 发送端名。
+     * 若进程被强制终止而未注销，共享注册表中的残留名会让 Spout 在下次启动时
+     * 另建 "名字_1" 副本，OBS 侧则留下定格的旧源。
+     */
+    private static void registerShutdownHook() {
+        if (hookRegistered) {
+            return;
+        }
+        hookRegistered = true;
+        Runtime.getRuntime().addShutdownHook(new Thread(SpoutSender::release, "BlackAnninDrone-SpoutCleanup"));
     }
 
     /** CreateSender(this, name, w, h, format) */

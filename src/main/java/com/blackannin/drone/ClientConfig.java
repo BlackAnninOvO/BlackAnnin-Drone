@@ -26,6 +26,11 @@ public class ClientConfig {
             .comment("无人机视角的视场角（默认 70 = 我的世界默认值，不随玩家设置变化）")
             .defineInRange("droneFov", 70.0, 30.0, 110.0);
 
+    public static final ModConfigSpec.BooleanValue STICK_VIEW_MODE = BUILDER
+            .comment("手动操纵的默认视角：true = 摇杆（手柄）渐进控制，false = 鼠标直接控制。")
+            .comment("操控台内按 V 或点按钮切换后会自动保存，下次进入沿用上次选择。")
+            .define("stickViewMode", true);
+
     public static final ModConfigSpec.IntValue SPOUT_EVERY_N_FRAMES = BUILDER
             .comment("推流帧率阀门：每 N 帧渲染并推送一帧无人机画面（1=每帧，2=30fps，3=20fps）。")
             .comment("开启光影时无人机画面需要第二个完整渲染管线，建议设为 2 以减半性能开销；OBS 侧会保持上一帧画面。")

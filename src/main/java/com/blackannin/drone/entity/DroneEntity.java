@@ -49,12 +49,10 @@ import java.util.UUID;
  */
 public class DroneEntity extends Mob implements OwnableEntity {
     private static final EntityDataAccessor<Optional<UUID>> OWNER_UUID = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
-    private static final EntityDataAccessor<Integer> TAKEOFF_TICKS = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> MANUAL_CONTROL = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.BOOLEAN);
 
     /** 玩家爬行时的跟随距离：贴近玩家，便于从同一洞口穿过 */
     private static final double CRAWL_FOLLOW_DISTANCE = 1.2D;
-    /** 手动模式下转向所需的最小水平速度：低于该值视为悬停，保持当前朝向 */
     /** 仅服务端：遥控器连续输入（由网络包每 tick 刷新） */
     private float remoteForward;
     private float remoteStrafe;
@@ -63,6 +61,8 @@ public class DroneEntity extends Mob implements OwnableEntity {
     private float remotePitchDelta;
     /** 仅服务端：被无人机强行打开的门（原状态），离开后恢复 */
     private final Map<BlockPos, BlockState> forcedOpenDoors = new HashMap<>();
+    /** 仅服务端：起飞倒计时。客户端从不读取，故用普通字段而非同步数据，避免起飞期间每 tick 发同步包 */
+    private int takeoffTicks;
     /** 仅服务端：飞行导航 */
     private final DroneNavigator navigator = new DroneNavigator(this);
 
@@ -121,7 +121,6 @@ public class DroneEntity extends Mob implements OwnableEntity {
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(OWNER_UUID, Optional.empty());
-        builder.define(TAKEOFF_TICKS, 0);
         builder.define(MANUAL_CONTROL, false);
     }
 
@@ -152,9 +151,8 @@ public class DroneEntity extends Mob implements OwnableEntity {
             Player online = ownerId == null ? null
                     : serverLevel.getServer().getPlayerList().getPlayer(ownerId);
             if (online == null) {
-                // 玩家离线：掉落为物品并移除，避免留下无人认领的实体
-                dropAsItem();
-                this.discard();
+                // 玩家离线/退出游戏：不再掉落销毁，原地悬停并随存档持久化。
+                // 玩家回来后由本 tick 逻辑自动恢复跟随，推流随相机渲染器自动继续
                 return;
             }
             if (online.level() instanceof ServerLevel target
@@ -162,6 +160,8 @@ public class DroneEntity extends Mob implements OwnableEntity {
                 // 玩家已进入另一个维度：跟随过去
                 com.blackannin.drone.BlackAnninsDrone.LOGGER.info("[跨维度] tick轮询传送: {} -> {}",
                         this.level().dimension().location(), target.dimension().location());
+                // 跨维度会重建实体并丢弃本实例：先还原旧维度中被强开的门，防止门永久停留在开态
+                restoreForcedDoors();
                 this.teleportTo(target, online.getX(), online.getY() + Config.DRONE_FOLLOW_HEIGHT.get(),
                         online.getZ(), Set.of(), this.getYRot(), this.getXRot());
             }
@@ -182,15 +182,15 @@ public class DroneEntity extends Mob implements OwnableEntity {
             return;
         }
         if (!owner.level().dimension().equals(this.level().dimension()) && owner.level() instanceof ServerLevel target) {
-            // 玩家跨维度传送：无人机跟随到对应维度
+            // 玩家跨维度传送：无人机跟随到对应维度（同理先还原旧维度的强开门）
+            restoreForcedDoors();
             this.teleportTo(target, owner.getX(), owner.getY() + Config.DRONE_FOLLOW_HEIGHT.get(), owner.getZ(),
                     Set.of(), this.getYRot(), this.getXRot());
             return;
         }
 
-        int ticks = this.entityData.get(TAKEOFF_TICKS);
-        if (ticks < Config.DRONE_TAKEOFF_DELAY.get()) {
-            this.entityData.set(TAKEOFF_TICKS, ticks + 1);
+        if (this.takeoffTicks < Config.DRONE_TAKEOFF_DELAY.get()) {
+            this.takeoffTicks++;
             this.setDeltaMovement(Vec3.ZERO);
             return;
         }
@@ -291,10 +291,6 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.setYHeadRot(this.getYRot());
     }
 
-    /**
-     * 手动模式视角完全由玩家的鼠标/摇杆控制（v0.5.0 依需求取消"朝移动方向转头"）。
-     */
-
     /** 玩家是否处于爬行/低矮姿态（钻活板门、1 格高通道、游泳等） */
     private boolean isOwnerCrawling(Player owner) {
         return owner.getPose() == Pose.SWIMMING || owner.getBbHeight() < 1.0F;
@@ -340,6 +336,29 @@ public class DroneEntity extends Mob implements OwnableEntity {
      */
     @Override
     protected void handlePortal() {
+    }
+
+    /**
+     * 实体移除（收回、离线掉落、孤儿回收、/kill）时还原全部强开的门，防止门永久停留在开态。
+     * 跨维度移除（CHANGED_DIMENSION）不在此处理：届时 level() 可能已指向新维度，
+     * 用旧维度坐标写方块会误改新维度，因此跨维度改为在 teleportTo 调用前显式还原。
+     */
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        if (!this.level().isClientSide
+                && (reason == Entity.RemovalReason.DISCARDED || reason == Entity.RemovalReason.KILLED)) {
+            restoreForcedDoors();
+        }
+        super.remove(reason);
+    }
+
+    /** 还原所有被强开的门（还原后清空映射，可幂等重复调用） */
+    private void restoreForcedDoors() {
+        if (this.forcedOpenDoors.isEmpty()) {
+            return;
+        }
+        this.forcedOpenDoors.forEach((pos, state) -> this.level().setBlock(pos, state, 3));
+        this.forcedOpenDoors.clear();
     }
 
     /** 重置视角：对准玩家朝向、俯仰归零（操控台「重置视角」与「恢复跟随」时调用） */
@@ -402,7 +421,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         return true;
     }
 
-    /** 掉落为物品（玩家离线时） */
+    /** 掉落为物品（仅孤儿回收时；玩家离线不再掉落，原地留驻） */
     private void dropAsItem() {
         this.spawnAtLocation(new ItemStack(ModItems.AERIAL_DRONE.get()));
         Player owner = getOwner();
@@ -469,7 +488,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         if (getOwnerUUID() != null) {
             compound.putUUID("Owner", getOwnerUUID());
         }
-        compound.putInt("TakeoffTicks", this.entityData.get(TAKEOFF_TICKS));
+        compound.putInt("TakeoffTicks", this.takeoffTicks);
         compound.putBoolean("ManualControl", this.entityData.get(MANUAL_CONTROL));
     }
 
@@ -479,7 +498,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         if (compound.hasUUID("Owner")) {
             this.entityData.set(OWNER_UUID, Optional.of(compound.getUUID("Owner")));
         }
-        this.entityData.set(TAKEOFF_TICKS, compound.getInt("TakeoffTicks"));
+        this.takeoffTicks = compound.getInt("TakeoffTicks");
         this.entityData.set(MANUAL_CONTROL, compound.getBoolean("ManualControl"));
     }
 }

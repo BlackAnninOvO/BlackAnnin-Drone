@@ -14,7 +14,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 **BlackAnnin的无人机** 添加了一架可收回的航拍无人机。放飞后它会悬浮跟随着你飞行，能自主绕过障碍、穿过门洞与矮通道找到你；想亲自掌舵时，掏出**无人机遥控器**（或按下 J 键），用键盘和鼠标像操作真实穿越机一样**丝滑地**驾驶它，遥测面板上罗盘、人工地平仪、高度与速度一目了然。它的摄像头画面以**原版渲染管线**渲染，并通过 **Spout2** 实时发送给 OBS —— 直播、录航拍镜头，都随你。
 
-模组 ID：`blackannin_drone` ｜ 版本：`0.5.0-1.21.1` ｜ 协议：MIT
+模组 ID：`blackannin_drone` ｜ 版本：`0.6.0-1.21.1` ｜ 协议：MIT
 
 ## 功能特性
 
@@ -23,7 +23,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **放置与回收**：手持「航拍无人机」右键放置；**潜行 + 右键点击无人机**，或使用控制面板的「回收无人机」按钮即可收回（服务端校验归属后返还物品）。
 - **悬停飞行**：无人机无重力、无 AI，始终悬浮；碰撞箱与模型严格对齐。
 - **朝向**：自动跟随模式下镜头朝你面向的方向；手动操控时镜头平滑转向移动方向（悬停时保持朝向，不会乱转）。
-- **完全无敌**：不受燃烧、窒息、摔落、爆炸、怪物攻击等任何伤害，也不会被怪物当作攻击目标；**只有玩家主动回收或 `/kill` 指令能移除它**。不可推动、不会被距离卸载；玩家离线时才掉落为物品。
+- **完全无敌**：不受燃烧、窒息、摔落、爆炸、怪物攻击等任何伤害，也不会被怪物当作攻击目标；**只有玩家主动回收或 `/kill` 指令能移除它**。不可推动、不会被距离卸载；**玩家退出游戏后原地留驻**，回来后自动恢复跟随与推流。
 
 ### 跟随与飞行
 
@@ -31,7 +31,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **速度联动**：无人机速度随你的移动速度提升（含创造模式飞行），可设置联动系数与最高速度上限，高速移动不再掉队。
 - **平滑跟随**：水平方向缓动跟随；垂直方向在你**落地时始终跟随高度**（跑酷逐格上升也能跟上），空中只有真正的大幅升降（飞行、坠落）才跟随，**跑跳与原地连跳都不会让其上下浮动**；移动加减速同样做了平滑，避免顿挫。
 - **爬行跟随**：当你钻活板门、爬 1 格高通道时，跟随点会切换为「贴身且与你同高」，无人机从**同一个洞口**钻进来跟随，而不是在外面绕飞。
-- **强制传送兜底**：与你的距离超过阈值（默认 16 格）时立即传送到你身边；**你死亡时它原地等待**，复活后自动跟来；**跨维度**（下界/末地/传送）同样自动跟随。
+- **强制传送兜底**：与你的距离超过阈值（默认 16 格）时立即传送到你身边；**你死亡时它原地等待**，复活后自动跟来；**跨维度**（下界/末地/传送）同样自动跟随；**退出游戏后原地留驻**，下次进入世界接着用。
 
 ### 智能寻路
 
@@ -54,8 +54,8 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 ### 无人机遥控器与操控台（v0.5.0 重制）
 
 - **无人机遥控器**：新增物品（创造物品栏可取）。手持**右键**即可打开操控台；默认按键 `J` 也能打开；还可以用指令 `/droneui` 直接呼出。物品采用 BlockBench 制作的 3D 模型，手持、物品栏与掉落物展示姿态均已调好。
-- **手动接管制**：打开面板默认处于"观察"状态（无人机继续自动跟随），点击**「手动操纵」**按钮或按 `K` 才会接管；接管后 `WASD` 三轴连续移动、`空格`/`左Shift` 升降——按住就持续飞行，加减速平滑，撞墙自动贴墙滑行。「手动操纵」与**「恢复跟随」**（或 `R`）是两个独立按钮、按状态互相点亮，交还控制权后鼠标怎么动都不会误接管。手动模式活动半径约 15 格，靠近边界会被柔性拉回。
-- **两种视角模式**（面板切换或按 `V`）：**鼠标直接控制**——接管后自动锁定光标，移动鼠标即可**无限旋转**视角，完全不受窗口边界限制；此时摇杆不再显示，面板底部的提示会变成「`V` 解锁鼠标（切换为摇杆视角）」，配合 `R` 恢复跟随、`X` 回收即可完成全部操作；**摇杆渐进控制**——拖动面板左下角的摇杆，视角以角速度缓慢跟随、松手自动回中（下拉为低头），光标正常显示可拖动 UI。摇杆灵敏度在面板内实时拖动调节（0.5~12）。
+- **手动接管制**：打开面板默认处于"观察"状态（无人机继续自动跟随），点击**「手动操纵」**按钮或按 `K` 才会接管；接管后 `WASD` 三轴连续移动、`空格`/`左Shift` 升降——按住就持续飞行，加减速平滑，撞墙自动贴墙滑行。「手动操纵」与**「恢复跟随」**（或 `R`）是两个独立按钮、按状态互相点亮，交还控制权后鼠标怎么动都不会误接管。手动模式活动半径可在配置中调整（默认 64 格），靠近边界会被柔性拉回。
+- **两种视角模式**（面板切换或按 `V`，**默认摇杆（手柄）模式**，切换后自动记住）：**鼠标直接控制**——接管后自动锁定光标，移动鼠标即可**无限旋转**视角，完全不受窗口边界限制；此时摇杆不再显示，面板底部的提示会变成「`V` 解锁鼠标（切换为摇杆视角）」，配合 `R` 恢复跟随、`X` 回收即可完成全部操作；**摇杆渐进控制**——拖动面板左下角的摇杆，视角以角速度缓慢跟随、松手自动回中（下拉为低头），光标正常显示可拖动 UI。摇杆灵敏度在面板内实时拖动调节（0.5~12）。
 - **航测风格操控台**：顶部 LINK 连接状态灯；滚动罗盘刻度带（N/E/S/W）；**人工地平仪**（分割线随俯仰滚动）；右侧遥测中英双语实时刷新——模式 MODE、高度 ALT、距离 DIST、水平速度 H.SPD、垂直速度 V.SPD、航向 HDG、坐标 POS。
 - **「重置视角」按钮（或按 `C`）**：把无人机视角对准你本人面向的方向、俯仰归零，飞迷糊时一键回正；点击**「恢复跟随」时也会自动初始化视角**，手动模式遗留的朝向不会带进跟随视角。
 - **`X` 回收无人机**：收回并返还物品；`ESC` 关闭面板后无人机会原地悬停待命。
@@ -84,6 +84,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 | `spoutEnabled` | true | 启用 FPV 画面与 Spout 输出 |
 | `spoutSenderName` | BlackAnninDrone | OBS 中显示的发送器名称 |
 | `spoutWidth` / `spoutHeight` | 1920 / 1080 | 输出分辨率（改动下一帧生效） |
+| `spoutEveryNFrames` | 1 | 推流帧率阀门：每 N 帧渲染并推送一帧（2 = 30fps）；开启光影时建议设为 2 以减半开销 |
 | `spoutLibraryPath` | 空 | SpoutLibrary.dll 路径，留空自动搜索 |
 | `droneFov` | 70.0 | 无人机视角视场角（独立于玩家设置） |
 | `spoutKeepAspect` | true | 保持窗口宽高比：非输出比例时画面居中缩放，四周为**全透明**（便于 OBS 叠加合成，而非黑边） |
@@ -99,7 +100,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 - **光影兼容（v0.6.0）**：已适配 Iris 光影管线——开启光影后，无人机会用一个**完整的第二渲染管线**成像（gbuffer + composite 合成），玩家视角与无人机视角**都带完整光影效果**，玩家画面不会出现任何来自无人机视角的残留。已在 **Iris 1.8.14 + Sodium 0.8.13 + Complementary Reimagined / Euphoria Patches 1.10.5** 组合下验证通过。
 - **性能开销**：开启光影时每帧会渲染两次世界（玩家一遍、无人机一遍），开销约为无光影时的两倍。可在客户端配置中将 `spoutEveryNFrames` 设为 `2`（无人机画面 30fps）以减半该项开销，OBS 侧会自动保持上一帧画面。
-- **OBS 端**：Spout 源会缓存上一次收到的纹理，改动分辨率或发送器后若画面不更新，请在 OBS 中删除该源并重新添加。
+- **OBS 端**：Spout 源会缓存上一次收到的纹理，改动分辨率或发送器后若画面不更新，请在 OBS 中删除该源并重新添加。若**强制结束游戏进程**（任务管理器等），Spout 共享注册表会残留旧发送器名，OBS 中可能出现定格的旧条目——重启 OBS 即可清除；正常退出游戏时会自动注销，不会残留。
 
 ## 从源码构建
 
@@ -118,7 +119,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 **BlackAnnin's Drone** adds a retrievable aerial drone to Minecraft. Once deployed it hovers and follows you, navigates around obstacles, squeezes through doorways and crawl spaces to reach you. And when you feel like taking the stick yourself, pull out the **Drone Remote** (or press `J`) and fly it with your keyboard and mouse, as smooth as a real FPV quad — compass, artificial horizon, altitude and speed all live on the telemetry panel. Its camera feed is rendered through the **vanilla render pipeline** and streamed to OBS in real time over **Spout2** — great for live streams and cinematic aerial shots.
 
-Mod ID: `blackannin_drone` · Version: `0.5.0-1.21.1` · License: MIT
+Mod ID: `blackannin_drone` · Version: `0.6.0-1.21.1` · License: MIT
 
 ## Features
 
@@ -127,7 +128,7 @@ Mod ID: `blackannin_drone` · Version: `0.5.0-1.21.1` · License: MIT
 - **Deploy & retrieve**: right-click with the *Aerial Drone* item to deploy. **Sneak + right-click the drone**, or use the **"Retrieve Drone"** button in the control panel, to stow it again (ownership is verified server-side before the item is returned).
 - **Hovering flight**: no gravity, no AI, always floating; the hitbox is precisely aligned with the model.
 - **Heading**: in follow mode the camera faces where you face; in manual control it turns smoothly toward its movement direction (it holds its heading while hovering, so the view never spins).
-- **Fully invulnerable**: immune to fire, suffocation, fall, explosion and mob damage, and mobs never target it — **only you can retrieve it, or the `/kill` command can remove it**. It cannot be pushed and is never despawned by distance; it only drops as an item when its owner logs off.
+- **Fully invulnerable**: immune to fire, suffocation, fall, explosion and mob damage, and mobs never target it — **only you can retrieve it, or the `/kill` command can remove it**. It cannot be pushed and is never despawned by distance; **it stays where it is when you leave the game**, resuming follow mode and streaming automatically when you return.
 
 ### Following & Flight
 
@@ -135,7 +136,7 @@ Mod ID: `blackannin_drone` · Version: `0.5.0-1.21.1` · License: MIT
 - **Speed scales with you**: the drone speeds up with your movement (creative flight included) with configurable factor and top speed, so it no longer falls behind.
 - **Smooth following**: eased horizontal tracking; it always follows your height **while you are on the ground** (so block-by-block parkour climbs are matched), follows only real altitude changes while airborne (flight, falling), and **ignores the jump arc entirely** — so neither running jumps nor in-place bunny hopping make the view bob. Acceleration is smoothed as well.
 - **Crawl-aware**: when you crawl through a trapdoor or a one-block-high tunnel, the follow point switches to "hugging you at your own height", so the drone **comes in through the very same opening** instead of flying around outside.
-- **Teleport fallbacks**: instantly teleports to you beyond the configured distance (16 blocks by default); **waits in place when you die** and follows again after you respawn; follows you **across dimensions**.
+- **Teleport fallbacks**: instantly teleports to you beyond the configured distance (16 blocks by default); **waits in place when you die** and follows again after you respawn; follows you **across dimensions**; and **stays in the world when you quit**, ready to pick up where you left off.
 
 ### Smart Pathfinding
 
@@ -158,8 +159,8 @@ This is where most of the work went — the drone will not just bump into walls:
 ### Drone Remote & Console (reworked in v0.5.0)
 
 - **Drone Remote**: a new item (also in the creative inventory). **Right-click** it to open the drone console; the `J` key (configurable) does the same, and so does the `/droneui` command. The item uses a 3D BlockBench model, with display poses tuned for hand, inventory, ground and frames.
-- **Take-control gating**: the console opens in an observe state (the drone keeps following automatically); only after clicking **Take Control** or pressing `K` do the controls respond — `WASD` for continuous three-axis movement, `Space`/`Left Shift` to climb or descend. Hold a key and it **keeps flying**, with smoothed acceleration and deceleration; bumping into a wall makes it slide along it. Click **Reset Follow** or press `R` to hand control back for good — moving the mouse afterwards will never re-take it. Manual range is about 15 blocks, softly pulled back near the boundary.
-- **Two view modes** (switch on the panel or with `V`): **Mouse** — the cursor is locked once you take control, so the mouse rotates the view endlessly with no window-edge limit; the joystick is hidden and the hint line becomes "`V` unlock the mouse (switch to stick view)", with `R` to reset follow and `X` to retrieve. **Stick** — drag the joystick in the lower-left corner; the view follows its deflection at an adjustable rate and re-centers on release (pull down to pitch down), and the cursor stays visible for the UI. Stick sensitivity is a live slider (0.5–12).
+- **Take-control gating**: the console opens in an observe state (the drone keeps following automatically); only after clicking **Take Control** or pressing `K` do the controls respond — `WASD` for continuous three-axis movement, `Space`/`Left Shift` to climb or descend. Hold a key and it **keeps flying**, with smoothed acceleration and deceleration; bumping into a wall makes it slide along it. Click **Reset Follow** or press `R` to hand control back for good — moving the mouse afterwards will never re-take it. Manual range is configurable (64 blocks by default) and softly pulled back near the boundary.
+- **Two view modes** (switch on the panel or with `V`; **stick/gamepad mode by default**, and your choice is remembered): **Mouse** — the cursor is locked once you take control, so the mouse rotates the view endlessly with no window-edge limit; the joystick is hidden and the hint line becomes "`V` unlock the mouse (switch to stick view)", with `R` to reset follow and `X` to retrieve. **Stick** — drag the joystick in the lower-left corner; the view follows its deflection at an adjustable rate and re-centers on release (pull down to pitch down), and the cursor stays visible for the UI. Stick sensitivity is a live slider (0.5–12).
 - **Avionics-style console**: a `LINK` status lamp on top; a scrolling compass ribbon (N/E/S/W); an **artificial horizon** whose split line rolls with pitch; and bilingual live telemetry on the right — MODE, ALT, DIST, H.SPD, V.SPD, HDG and POS.
 - **Reset View** button (or press `C`): snaps the drone's view to the direction you are facing with a level pitch — one tap to re-orient when you lose your bearings; clicking **Reset Follow** also initializes the view, so the heading left over from manual flight never carries into follow mode.
 - **`X` retrieves** the drone and returns the item; after closing with `ESC` the drone hovers in place, standing by.
@@ -188,6 +189,7 @@ This is where most of the work went — the drone will not just bump into walls:
 | `spoutEnabled` | true | Enable the FPV view and Spout output |
 | `spoutSenderName` | BlackAnninDrone | Sender name shown in OBS |
 | `spoutWidth` / `spoutHeight` | 1920 / 1080 | Output resolution (applied on the next frame) |
+| `spoutEveryNFrames` | 1 | Stream-frame valve: render & send one frame every N (2 = 30fps); set 2 with shaders on to halve the cost |
 | `spoutLibraryPath` | empty | Path to SpoutLibrary.dll; empty = auto-detect |
 | `droneFov` | 70.0 | Drone view FOV (independent of the player setting) |
 | `spoutKeepAspect` | true | Keep the window aspect ratio: the frame is centered and any leftover area is **fully transparent** (for compositing in OBS, instead of black bars) |
@@ -203,7 +205,7 @@ This is where most of the work went — the drone will not just bump into walls:
 
 - **Shader compatibility (v0.6.0)**: the Iris shader pipeline is now fully supported — with shaders enabled, the drone renders through a **complete second pipeline** (gbuffer + composite), so **both your view and the drone feed carry the full shader look**, with no residue from the drone's view ever leaking into your own screen. Validated with **Iris 1.8.14 + Sodium 0.8.13 + Complementary Reimagined / Euphoria Patches 1.10.5**.
 - **Performance cost**: with shaders on, the world is rendered twice per frame (once for you, once for the drone), roughly doubling GPU load. Set `spoutEveryNFrames` to `2` in the client config (drone feed at 30fps) to halve it — OBS keeps showing the last frame between updates.
-- **OBS side**: a Spout source caches the last texture it received. If the picture does not update after changing the resolution or sender, remove the source in OBS and add it again.
+- **OBS side**: a Spout source caches the last texture it received. If the picture does not update after changing the resolution or sender, remove the source in OBS and add it again. If the game process is **force-killed**, a stale sender name can linger in the Spout registry and OBS may show a frozen old entry — restarting OBS clears it; quitting the game normally unregisters automatically and leaves nothing behind.
 
 ## Building from Source
 

@@ -32,8 +32,6 @@ final class DronePathfinder {
     private static final int RANGE_Y = 10;
     /** 单次搜索最大扩展节点数，防止极端情况卡顿 */
     private static final int MAX_EXPANSIONS = 3000;
-    /** 斜向移动代价 */
-    private static final double DIAGONAL_COST = 1.4142D;
 
     /** 无人机碰撞箱（略窄于 0.6，避免贴墙误判） */
     private static final double HALF_WIDTH = 0.28D;
@@ -87,7 +85,9 @@ final class DronePathfinder {
                 if (!isPassable(level, drone, next) || !isStepClear(level, drone, current.pos, offset)) {
                     continue;
                 }
-                double stepCost = (offset[0] != 0 && offset[2] != 0) ? DIAGONAL_COST : 1.0D;
+                // 步长代价 = 偏移的欧氏长度，与启发函数（欧氏距离）同一量纲，
+                // 保证 A* 可采纳、结果必为最短路（原先竖斜复合步只计 1.0，比直线距离"还便宜"）
+                double stepCost = Math.sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
                 double tentative = currentG + stepCost;
                 long nextKey = next.asLong();
                 if (tentative < gScore.getOrDefault(nextKey, Double.MAX_VALUE) - 1.0E-6D) {

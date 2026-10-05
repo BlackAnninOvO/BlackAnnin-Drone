@@ -90,6 +90,11 @@ neoForge {
             // "REGISTRYDUMP": For getting the contents of all registries.
             systemProperty 'forge.logging.markers', 'REGISTRIES'
 
+            // 开发机 TLS 修复：Watt Toolkit(Steam++) 等加速工具对 GitHub 域名做本地 HTTPS 反代，
+            // Java 默认 cacerts 不认其根证书，导致 Iris 等模组的更新检查报 PKIX 错误（不影响游戏本体）。
+            // 改用 Windows 系统信任库（已包含用户安装的加速工具根证书）；未开加速工具时行为不变。
+            systemProperty 'javax.net.ssl.trustStoreType', 'Windows-ROOT'
+
             // Recommended logging level for the console
             // You can set various levels here.
             // Please read: https://stackoverflow.com/questions/2031163/when-to-use-the-different-log-levels

@@ -9,7 +9,9 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import net.minecraft.client.Camera;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
@@ -68,6 +70,9 @@ public final class DroneCameraRenderer {
             // 退出世界：只释放渲染目标。Spout 发送端保持注册到进程退出（由 JVM 关闭钩子注销），
             // 进程内重进世界直接复用同名发送器，避免 Spout 另建 *_1 副本、OBS 残留定格旧源
             destroyRenderTargets();
+        } else {
+            // 在世界中：跟随模式镜头同步（tick 末、实体插值步之后执行，见 applyClientAim）
+            applyClientAim(mc);
         }
     }
 
@@ -236,7 +241,101 @@ public final class DroneCameraRenderer {
                 GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
     }
 
-    /** 排障：把实际发送的推流帧导出为 PNG（游戏目录 drone_stream_debug.png） */
+    /** 客户端跟随取景状态：平滑瞄准角、跳跃弧线过滤锚点 */
+    private static float aimYaw;
+    private static float aimPitch;
+    private static boolean aimInitialized;
+    private static double clientGroundY;
+    private static boolean clientGroundKnown;
+    /** 客户端跳跃弧线状态（滞回 + 最短时长，与服务端同规则） */
+    private static boolean clientJumpArc;
+    private static int clientJumpArcTicks;
+
+    /**
+     * 客户端跟随取景（每 tick 末、实体插值步之后执行）：把客户端无人机的旋转写为
+     * "指向玩家眼睛"的瞄准角，并以 yRotO=上一瞄准角、yRot=新瞄准角 的方式双写——
+     * 渲染插值（getViewYRot/XRot = lerp(旧, 新, partialTick)）会在两次写入之间逐帧平滑，
+     * 20Hz 写入即获得逐帧平滑的取景，且与实体旋转的网络插值零冲突。
+     *
+     * <p>为什么不改在渲染期（RenderFrameEvent.Post）：每帧渲染开头 renderLevel 会用
+     * 实体旋转执行 camera.setup，渲染期设置的任何朝向都会在下一帧开头被覆盖——
+     * 取景必须发生在 tick 末的实体状态上。</p>
+     *
+     * <p>跳跃弧线期间完全冻结取景（平地连跳镜头纹丝不动）；玩家接近正上/正下时
+     * 保持当前朝向，避免方位角在零分量上抖动。</p>
+     */
+    private static void applyClientAim(Minecraft mc) {
+        DroneEntity drone = DroneEntity.findOwned(mc.player);
+        if (drone == null || drone.isManuallyControlled() || drone.isCinematic()) {
+            aimInitialized = false;
+            return;
+        }
+        // 跳跃弧线过滤（滞回 + 最短时长，与服务端 DroneNavigator.isJumpArc 同规则）：
+        // 落地时记录锚点，空中且高差处于跳跃幅度内视为跳跃；单阈值会在飞行时于边界
+        // 每 tick 翻转，使俯仰冻结高频切换（空中取景抖动），故进入 <1.4、退出 >1.8、最短 4 tick
+        if (mc.player.onGround()) {
+            clientGroundY = mc.player.getY();
+            clientGroundKnown = true;
+        }
+        boolean flying = mc.player.getAbilities().flying || mc.player.isFallFlying();
+        boolean jumpArc;
+        if (mc.player.onGround() || flying || !clientGroundKnown) {
+            clientJumpArc = false;
+            clientJumpArcTicks = 0;
+            jumpArc = false;
+        } else {
+            double dy = Math.abs(mc.player.getY() - clientGroundY);
+            if (clientJumpArc) {
+                clientJumpArcTicks++;
+                if (dy > 1.8D && clientJumpArcTicks >= 4) {
+                    clientJumpArc = false;
+                }
+            } else if (dy < 1.4D) {
+                clientJumpArc = true;
+                clientJumpArcTicks = 0;
+            }
+            jumpArc = clientJumpArc;
+        }
+
+        Vec3 delta = mc.player.getEyePosition().subtract(drone.position());
+        double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
+        boolean wasInitialized = aimInitialized;
+        float newYaw;
+        float newPitch;
+        if (!wasInitialized) {
+            // 首次瞄准：直接对准（双写同一值，避免从残留值插值出跳变）
+            newYaw = horizontal < 1.0E-3D ? drone.getYRot()
+                    : (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
+            newPitch = horizontal < 1.0E-3D ? drone.getXRot()
+                    : (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
+            aimInitialized = true;
+        } else if (horizontal < 1.0E-3D) {
+            // 玩家接近正上/正下：保持当前朝向，避免方位角抖动
+            newYaw = aimYaw;
+            newPitch = aimPitch;
+        } else {
+            float targetYaw = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
+            newYaw = aimYaw + Mth.degreesDifference(aimYaw, targetYaw) * 0.35F;
+            if (jumpArc) {
+                // 弧线期间只冻结俯仰（连跳上下浮动由俯仰造成，水平方向不受跳跃影响）；
+                // 若偏航也冻结，玩家跳跃中转向会在落地 tick 的短暂放开里阶梯式补追（抽搐）
+                newPitch = aimPitch;
+            } else {
+                float targetPitch = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
+                newPitch = aimPitch + (targetPitch - aimPitch) * 0.35F;
+            }
+        }
+        // 双写：yRotO=上一瞄准角、yRot=新瞄准角 → 渲染插值在两次瞄准之间逐帧平滑
+        drone.yRotO = wasInitialized ? aimYaw : newYaw;
+        drone.setYRot(newYaw);
+        drone.xRotO = wasInitialized ? aimPitch : newPitch;
+        drone.setXRot(newPitch);
+        drone.setYHeadRot(newYaw);
+        drone.setYBodyRot(newYaw);
+        aimYaw = newYaw;
+        aimPitch = newPitch;
+    }
+
     private static void dumpStreamFrame() {
         if (!ClientConfig.SPOUT_DEBUG_DUMP.get()) {
             return;
@@ -331,9 +430,13 @@ public final class DroneCameraRenderer {
         }
     }
 
-    /** 退出世界/回标题界面：释放渲染目标，但保留 Spout 发送端注册（进程内复用，防止 *_1 副本） */
+    /** 重置客户端取景状态与 OSD 录制计时（世界卸载/关闭推流时调用） */
     private static void destroyRenderTargets() {
         streamLogged = false;
+        aimInitialized = false;
+        clientGroundKnown = false;
+        clientJumpArc = false;
+        clientJumpArcTicks = 0;
         if (saveTarget != null) {
             saveTarget.destroyBuffers();
             saveTarget = null;
@@ -342,7 +445,6 @@ public final class DroneCameraRenderer {
             backupTarget.destroyBuffers();
             backupTarget = null;
         }
-        // 重置 OSD 录制计时（复杂模式 REC 时长从下次推流重新起算）
         StreamOsd.reset();
     }
 

@@ -120,7 +120,8 @@ final class StreamOsd {
      * alpha=255 纯色，不参与混合，可精确比对）。每次会话只记录一次结果，避免刷日志。
      */
     private static void verifyUploaded(int texId, PictureRect pic, MemoryStack stack) {
-        if (verifyLogged) {
+        // 探针是 CLEAN 模式底部遥测条的青色分隔线；PRO 模式无该元素，跳过自校验
+        if (verifyLogged || ClientConfig.SPOUT_OSD_PRO.get()) {
             return;
         }
         verifyLogged = true;

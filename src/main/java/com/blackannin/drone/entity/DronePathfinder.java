@@ -27,9 +27,9 @@ import java.util.PriorityQueue;
  * 因此 1 格宽的活板门洞口、竖井、门框都能通过；水、打开的活板门无碰撞判定，直接放行。</p>
  */
 final class DronePathfinder {
-    /** 搜索范围：以无人机为中心的水平/垂直半径（格） */
+    /** 搜索范围：以无人机为中心的水平/垂直半径（格）。垂直取 24 覆盖常见坠落/爬升的追逐场景 */
     private static final int RANGE_XZ = 20;
-    private static final int RANGE_Y = 10;
+    private static final int RANGE_Y = 24;
     /** 单次搜索最大扩展节点数，防止极端情况卡顿 */
     private static final int MAX_EXPANSIONS = 3000;
 

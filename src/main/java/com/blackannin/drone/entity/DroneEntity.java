@@ -200,12 +200,14 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
 
         boolean cinematic = this.entityData.get(CINEMATIC);
-        // 距离过远：强制传送回玩家身边（仅自动跟随模式；手动/运镜模式各有自己的活动范围，不受该设置影响）
-        if (!this.entityData.get(MANUAL_CONTROL) && !cinematic) {
-            double teleportDistance = Config.DRONE_TELEPORT_DISTANCE.get();
-            if (this.position().distanceToSqr(owner.position()) > teleportDistance * teleportDistance) {
-                teleportToOwner(owner);
-            }
+        // 距离过远：强制传送回玩家身边（仅自动跟随模式；手动/运镜模式各有自己的活动范围，不受该设置影响）。
+        // 高速移动（鞘翅等）时按实测速度放宽阈值：跟随速度已 ≥ 玩家 1.2 倍，
+        // 传送只应作为真正掉队的兜底，而非高速跟随的常规手段（否则画面一顿一顿）
+        double teleportDistance = Math.max(Config.DRONE_TELEPORT_DISTANCE.get(),
+                this.navigator.ownerSpeed() * 10.0D);
+        if (!this.entityData.get(MANUAL_CONTROL) && !cinematic
+                && this.position().distanceToSqr(owner.position()) > teleportDistance * teleportDistance) {
+            teleportToOwner(owner);
         }
 
         // 先开门再移动：移动当帧门就已打开，避免无人机先撞一次门板
@@ -239,11 +241,10 @@ public class DroneEntity extends Mob implements OwnableEntity {
             Vec3 raw = isOwnerCrawling(owner) ? crawlFollowPoint(owner) : followPoint(owner);
             Vec3 routed = this.navigator.routeAlongPath(raw, owner);
             Vec3 target = this.navigator.smoothed(routed, followHeight);
-            this.navigator.flyToward(target, owner);
-            // 跟随时镜头朝主人面向的方向，FPV 呈现前进视角
-            setYawSmooth(owner.getYRot());
-            // 大幅升降（真实高度变化）时镜头完整对准玩家拍摄其运动；跳跃弧线与平飞保持水平
-            aimCameraAtOwner(owner, followHeight);
+            this.navigator.flyToward(target, owner, followHeight);
+            // 跟随时镜头始终对准玩家（OBS 画面优先）：偏航与俯仰双轴平滑追踪，
+            // 无人机位置滞后（坠落/爬升追击中）时玩家也始终在画面内
+            aimCameraAtOwner(owner);
         }
     }
 
@@ -262,7 +263,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
                 continue;
             }
             if (forcedOpenDoors.putIfAbsent(pos.immutable(), state) == null) {
-                BlackAnninsDrone.LOGGER.info("无人机强开门: {} ({})", pos, state.getBlock());
+                BlackAnninsDrone.LOGGER.debug("无人机强开门: {} ({})", pos, state.getBlock());
             }
             this.level().setBlock(pos, opened, 3);
             if (state.getBlock() instanceof DoorBlock door) {
@@ -299,38 +300,25 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.remotePitchDelta += pitchDelta;
     }
 
-    /** 平滑朝向目标偏航角（镜头朝向） */
-    private void setYawSmooth(float targetYaw) {
-        float delta = Mth.degreesDifference(this.getYRot(), targetYaw);
-        this.setYRot(this.getYRot() + delta * 0.2F);
+    /**
+     * 跟随模式镜头始终对准玩家（OBS 画面优先）：偏航与俯仰双轴指数平滑追踪。
+     * 无人机物理位置允许滞后（坠落/爬升追击中），但玩家始终保持在画面内；
+     * 玩家接近正上/正下方时保持当前偏航，避免方位角在零分量上抖动。
+     * 唯一旋转控制器——不再有"朝向玩家面向"与"对准玩家"两套逻辑互相拉扯。
+     */
+    private void aimCameraAtOwner(Player owner) {
+        Vec3 delta = owner.getEyePosition().subtract(this.position());
+        double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
+        if (horizontal < 1.0E-3D) {
+            return;
+        }
+        float yawToOwner = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
+        float pitchToOwner = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
+        float yawDelta = Mth.degreesDifference(this.getYRot(), yawToOwner);
+        this.setYRot(this.getYRot() + yawDelta * 0.25F);
+        this.setXRot(this.getXRot() + (pitchToOwner - this.getXRot()) * 0.25F);
         this.setYBodyRot(this.getYRot());
         this.setYHeadRot(this.getYRot());
-    }
-
-    /**
-     * 跟随模式升降镜头跟踪：玩家与无人机的高低差角超过阈值（大幅升降）时，
-     * 镜头偏航与俯仰完整对准玩家，保证其在画面内；跳跃弧线与水平飞行时回归
-     * "朝向玩家面向方向的水平视角"。
-     */
-    private void aimCameraAtOwner(Player owner, boolean followHeight) {
-        float targetPitch = 0.0F;
-        if (followHeight) {
-            Vec3 delta = owner.getEyePosition().subtract(this.position());
-            double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
-            if (horizontal > 1.0E-3D) {
-                float pitchToOwner = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
-                if (Math.abs(pitchToOwner) > 15.0F) {
-                    targetPitch = pitchToOwner;
-                    // 偏航也对准玩家：无人机位置漂移（绕障、路径跟随）时玩家仍始终在画面内
-                    float yawToOwner = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
-                    float yawDelta = Mth.degreesDifference(this.getYRot(), yawToOwner);
-                    this.setYRot(this.getYRot() + yawDelta * 0.2F);
-                    this.setYBodyRot(this.getYRot());
-                    this.setYHeadRot(this.getYRot());
-                }
-            }
-        }
-        this.setXRot(this.getXRot() + (targetPitch - this.getXRot()) * 0.2F);
     }
 
     /** 玩家是否处于爬行/低矮姿态（钻活板门、1 格高通道、游泳等） */

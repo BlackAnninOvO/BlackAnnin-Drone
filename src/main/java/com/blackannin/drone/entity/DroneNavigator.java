@@ -24,8 +24,12 @@ final class DroneNavigator {
     /** 跟随目标平滑系数（越小越平缓，避免视角抖动） */
     private static final double HORIZONTAL_SMOOTHING = 0.25D;
     private static final double VERTICAL_SMOOTHING = 0.4D;
-    /** 跳跃弧线最大高度（格）：跳跃约 1.25 格，超过该值视为真正的高度变化 */
-    private static final double JUMP_ARC_MAX_HEIGHT = 1.5D;
+    /** 跳跃弧线判定滞回：进入阈值（格） */
+    private static final double JUMP_ARC_ENTER_HEIGHT = 1.4D;
+    /** 跳跃弧线判定滞回：退出阈值（格）——单阈值会在飞行时每 tick 翻转，造成垂直抖动 */
+    private static final double JUMP_ARC_EXIT_HEIGHT = 1.8D;
+    /** 弧线最短锁定时长（tick）：进入后至少保持，防单 tick 翻转 */
+    private static final int JUMP_ARC_MIN_TICKS = 4;
     /** 速度平滑系数：让移动加减速更柔和 */
     private static final double VELOCITY_SMOOTHING = 0.35D;
 
@@ -36,15 +40,13 @@ final class DroneNavigator {
             0.0D, 15.0D, -15.0D, 30.0D, -30.0D, 45.0D, -45.0D, 60.0D, -60.0D,
             75.0D, -75.0D, 90.0D, -90.0D, 105.0D, -105.0D, 120.0D, -120.0D,
             135.0D, -135.0D, 150.0D, -150.0D, 165.0D, -165.0D, 180.0D};
-    /** 绕障单步最大位移：窄缝/门洞中不至于一次跨过头 */
+    /** 绕障单步位移：慢速时不超过 1 格保精度；高速时按速度的 90% 跟进（否则永远追不上坠落/飞行） */
     private static final double DETOUR_STEP_MAX = 1.0D;
     /** 沿用上次绕行方向的评分加成，避免在障碍边缘来回抖动 */
     private static final double DETOUR_MEMORY_BONUS = 0.75D;
 
     /** 重新搜索全局路径的间隔（tick） */
     private static final int REPATH_INTERVAL_TICKS = 10;
-    /** 距目标超过该距离（格）才进行全局寻路，近距离由局部转向处理 */
-    private static final double REPATH_MIN_DISTANCE = 6.0D;
     /** 目标移动超过该距离（格）时提前重新寻路 */
     private static final double REPATH_GOAL_MOVE_SQR = 4.0D;
 
@@ -91,6 +93,21 @@ final class DroneNavigator {
     /** 玩家实测速度（相邻 tick 位移差）：服务端 getDeltaMovement 对玩家不可靠（附录 A 参考 5） */
     private Vec3 lastOwnerPos;
     private Vec3 ownerVelocity = Vec3.ZERO;
+    /** 跳跃弧线冷却（tick）：弧线期间与其后若干 tick 抑制垂直前馈（见 verticalFeedAllowed） */
+    private int jumpArcCooldown;
+    private static final int JUMP_ARC_FEED_COOLDOWN = 4;
+    /** 视线连续受阻 tick 数：连续受阻才转绕障（滞回，防走动时视线闪烁引发模式交替） */
+    private int losBlockedTicks;
+    /** 视线转绕障的滞回阈值（tick） */
+    private static final int LOS_DETOUR_DELAY_TICKS = 3;
+    /** 前馈用垂直速度（低通 EMA 0.5）：压掉走台阶/落地瞬间的 1-tick 尖峰，只保留持续升降 */
+    private double verticalFeedY;
+    /** 跳跃弧线状态（带滞回与最短时长，防边界高频翻转）与其持续 tick 数 */
+    private boolean inJumpArc;
+    private int inJumpArcTicks;
+    /** 状态推进去重：isJumpArc 每 tick 可能被多处调用（followHeight 与前馈许可），
+     *  用游戏刻号保证状态机每 tick 只推进一次 */
+    private long jumpArcLastTick = -1L;
 
     DroneNavigator(DroneEntity drone) {
         this.drone = drone;
@@ -119,6 +136,12 @@ final class DroneNavigator {
         this.rerouteAttempts = 0;
         this.lastOwnerPos = null;
         this.ownerVelocity = Vec3.ZERO;
+        this.jumpArcCooldown = 0;
+        this.losBlockedTicks = 0;
+        this.verticalFeedY = 0.0D;
+        this.inJumpArc = false;
+        this.inJumpArcTicks = 0;
+        this.jumpArcLastTick = -1L;
         this.path = List.of();
         this.pathIndex = 0;
     }
@@ -145,45 +168,80 @@ final class DroneNavigator {
         } else if (absDy > 1.5D) {
             factor = 0.55D;
         }
+        // 水平平滑随玩家速度自适应加速：高速飞行下若仍用 0.25，平滑目标会滞后约 3×速度，
+        // 造成持续掉队并周期性触发传送（表现为一顿一顿）；常速行走不受影响
+        double playerSpeed = this.ownerVelocity.length();
+        double hFactor = HORIZONTAL_SMOOTHING;
+        if (playerSpeed > 0.35D) {
+            hFactor = Math.min(0.95D, HORIZONTAL_SMOOTHING + (playerSpeed - 0.35D) * 0.4D);
+        }
         double newY = followHeight ? current.y + dy * factor : current.y;
         this.smoothedTarget = new Vec3(
-                current.x + (raw.x - current.x) * HORIZONTAL_SMOOTHING,
+                current.x + (raw.x - current.x) * hFactor,
                 newY,
-                current.z + (raw.z - current.z) * HORIZONTAL_SMOOTHING);
+                current.z + (raw.z - current.z) * hFactor);
         return this.smoothedTarget;
     }
 
     /**
-     * 玩家是否处于"跳跃弧线"中：在空中且相对上次落地点的高度变化在跳跃幅度内（≤1.5 格）。
-     * 与水平位移无关——跑跳、原地连跳都属于跳跃弧线，无人机保持高度不上下浮动；
-     * 创造飞行与真正的大幅升降（坠落、被弹起、电梯）不算，照常跟随。
+     * 玩家是否处于"跳跃弧线"中：在空中、非飞行（创造飞行与鞘翅均排除）、
+     * 且相对上次落地点的高度变化处于跳跃幅度内。
+     *
+     * <p>带滞回与最短时长：单阈值会在飞行/低空移动时于边界处每 tick 翻转，
+     * 使 followHeight 与前馈许可高频切换、无人机垂直位置抖动（空中严重抽搐的根因）。
+     * 进入阈值 1.4 格、退出阈值 1.8 格、进入后至少保持 4 tick。</p>
      */
     boolean isJumpArc(Player owner, boolean ownerOnGround) {
-        if (ownerOnGround || this.groundAnchor == null || owner.getAbilities().flying) {
+        if (ownerOnGround || this.groundAnchor == null
+                || owner.getAbilities().flying || owner.isFallFlying()) {
+            this.inJumpArc = false;
+            this.inJumpArcTicks = 0;
             return false;
         }
-        return Math.abs(owner.getY() - this.groundAnchor.y) < JUMP_ARC_MAX_HEIGHT;
+        // 每 tick 只推进一次状态（本方法每 tick 可能被多处调用，去重防双倍推进）
+        long now = owner.level().getGameTime();
+        if (now != this.jumpArcLastTick) {
+            this.jumpArcLastTick = now;
+            double dy = Math.abs(owner.getY() - this.groundAnchor.y);
+            if (this.inJumpArc) {
+                this.inJumpArcTicks++;
+                if (dy > JUMP_ARC_EXIT_HEIGHT && this.inJumpArcTicks >= JUMP_ARC_MIN_TICKS) {
+                    this.inJumpArc = false;
+                }
+            } else if (dy < JUMP_ARC_ENTER_HEIGHT) {
+                this.inJumpArc = true;
+                this.inJumpArcTicks = 0;
+            }
+        }
+        return this.inJumpArc;
     }
 
     /**
-     * 全局路径跟随：距离较远或看不到目标时用 A* 搜索一条可通行路径，并按路点前进。
-     * 局部转向（视线/绕障）无法定位"封闭房间的小洞口"这类入口，必须靠全局搜索。
+     * 全局路径跟随：视线被挡或正穿过强开的门时用 A* 搜索可通行路径并按路点前进；
+     * 视线通畅时一律直飞（高速飞行平滑不顿挫）。局部转向（视线/绕障）无法定位
+     * "封闭房间的小洞口"这类入口，必须靠全局搜索。
      */
     Vec3 routeAlongPath(Vec3 goal, Player owner) {
         // 门被强开期间必须沿 A* 路点走：此时视线已通，直飞会对准玩家身后的跟随点而撞上门框，
         // 只有 A* 的路点是对准门洞中心的（修复"打开铁门却不进去"）
         boolean blocked = !hasLineOfSight(goal) || drone.hasForcedOpenDoors();
-        if (!blocked && drone.position().distanceToSqr(goal) < REPATH_MIN_DISTANCE * REPATH_MIN_DISTANCE) {
+        if (!blocked) {
+            // 视线通畅一律直飞：高速飞行（鞘翅等）时距离常超 6 格，若转入寻路会因
+            // 折线路点与周期性重寻路产生顿挫；直飞路径的视线已验证，安全且平滑
             this.path = List.of();
             return goal;
         }
         // 寻路终点取玩家自身位置：跟随点可能落在墙体/天花板内（不可通行），会导致搜索失败
         Vec3 searchGoal = owner.position();
+        // 目标移动超阈值需重寻路，但限频（每 2 tick 最多一次）：高速移动时目标每 tick 都在动，
+        // 不限频会每 tick 触发一次 A*（服务端卡顿源）；既有路径晚 1-2 tick 跟进即可
+        boolean goalMoved = this.pathGoal != null
+                && this.pathGoal.distanceToSqr(searchGoal) > REPATH_GOAL_MOVE_SQR;
         boolean needRepath = this.path.isEmpty()
                 || this.pathIndex >= this.path.size()
                 || --this.repathTicks <= 0
                 || this.pathGoal == null
-                || this.pathGoal.distanceToSqr(searchGoal) > REPATH_GOAL_MOVE_SQR;
+                || (goalMoved && this.repathTicks <= REPATH_INTERVAL_TICKS - 2);
         if (needRepath) {
             this.path = DronePathfinder.findPath(drone.level(), drone, searchGoal);
             this.pathGoal = searchGoal;
@@ -200,13 +258,31 @@ final class DroneNavigator {
         return this.pathIndex < this.path.size() ? this.path.get(this.pathIndex) : goal;
     }
 
-    /** 朝目标飞行：视线通畅直飞，受阻则绕行，无路可走则传送 */
-    void flyToward(Vec3 target, Player owner) {
+    /**
+     * 朝目标飞行：视线畅通（或短暂闪烁）优先滑行直飞；视线连续受阻才交给绕障；
+     * 绕障也失败则传送兜底。
+     *
+     * <p>滞回与滑行的组合消除了"贴地形移动时的严重抽搐"：曾出现直飞受阻→绕障选侧→
+     * 直飞又成功（清零侧向记忆）→再受阻重新选侧（可能换边）的每 tick 交替极限环，
+     * 表现为无人机左右横跳。现在部分受阻全部由 moveWithSlide 滑行消化，
+     * 只有连续受阻才进入绕障模式。</p>
+     */
+    void flyToward(Vec3 target, Player owner, boolean followHeight) {
         drone.getNavigation().stop();
 
-        if (hasLineOfSight(target) && flyStraight(target, owner)) {
+        boolean verticalFeed = verticalFeedAllowed(owner, followHeight);
+        boolean los = hasLineOfSight(target);
+        if (los) {
+            this.losBlockedTicks = 0;
+        } else if (this.losBlockedTicks < LOS_DETOUR_DELAY_TICKS) {
+            this.losBlockedTicks++;
+        }
+        boolean preferDirect = los || this.losBlockedTicks < LOS_DETOUR_DELAY_TICKS;
+        if (preferDirect && flyStraight(target, owner, verticalFeed)) {
             this.wallFollowSide = 0;
             this.detourTicks = 0;
+            // 滑行贴墙原地磨时净位移同样很小，卡住检测在此保留
+            checkProgress(target, owner);
             return;
         }
         double speed = speedForOwner();
@@ -215,6 +291,24 @@ final class DroneNavigator {
             return;
         }
         drone.teleportToOwner(owner);
+    }
+
+    /**
+     * 垂直前馈许可：跳跃弧线期间与其后 4 tick 冷却期内抑制。
+     * 连跳落地那一 tick 玩家在地面（followHeight=true）但实测垂直速度仍是上一跳的下降值，
+     * 若被前馈采用，无人机每次落地都会被向下压一下、起跳又弹回——表现为抽搐。
+     * 真正的高空坠落/爬升高差 >1.5 格，从不触发弧线判定，前馈不受影响。
+     */
+    private boolean verticalFeedAllowed(Player owner, boolean followHeight) {
+        if (isJumpArc(owner, owner.onGround())) {
+            this.jumpArcCooldown = JUMP_ARC_FEED_COOLDOWN;
+            return false;
+        }
+        if (this.jumpArcCooldown > 0) {
+            this.jumpArcCooldown--;
+            return false;
+        }
+        return followHeight;
     }
 
     /**
@@ -299,7 +393,7 @@ final class DroneNavigator {
     }
 
     /** 朝目标直飞：带速度平滑；返回是否成功移动一步 */
-    private boolean flyStraight(Vec3 target, Player owner) {
+    private boolean flyStraight(Vec3 target, Player owner, boolean verticalFeed) {
         Vec3 delta = target.subtract(drone.position());
         double dist = delta.length();
         if (dist < 0.05D) {
@@ -308,16 +402,24 @@ final class DroneNavigator {
         }
         double speed = speedForOwner();
         Vec3 desired = delta.scale(Math.min(1.0D, speed / dist));
+        // 大幅升降速度前馈：在位置修正之外叠加玩家实测垂直速度（低通后的值，
+        // 台阶/落地瞬间的 1-tick 尖峰已被压掉）——比例追踪对匀速坠落/爬升存在固有
+        // 稳态滞后，前馈使无人机以与玩家相同的垂直速度同降/同升（≈零滞后）。
+        // 许可条件见 verticalFeedAllowed：跳跃弧线与冷却期内不加（否则连跳会抽搐）
+        if (verticalFeed) {
+            desired = desired.add(0.0D, this.verticalFeedY, 0.0D);
+        }
         this.smoothedVelocity = this.smoothedVelocity.add(desired.subtract(this.smoothedVelocity).scale(VELOCITY_SMOOTHING));
         if (this.smoothedVelocity.lengthSqr() > speed * speed) {
             this.smoothedVelocity = this.smoothedVelocity.normalize().scale(speed);
         }
+        // 受阻时按轴分解滑行（与手动模式同一套）：贴地形/墙边的部分受阻平滑通过，
+        // 不再掉入绕障模式；仅当所有方向都被堵死（返回 false）才交给 detour 选侧绕行
         Vec3 step = this.smoothedVelocity;
-        if (!isPassable(step)) {
+        if (!moveWithSlide(step)) {
             this.smoothedVelocity = Vec3.ZERO;
             return false;
         }
-        doMove(step);
         return true;
     }
 
@@ -377,6 +479,12 @@ final class DroneNavigator {
             vel = vel.normalize().scale(OWNER_SPEED_CLAMP);
         }
         this.ownerVelocity = vel;
+        this.verticalFeedY += (Mth.clamp(vel.y, -3.0D, 3.0D) - this.verticalFeedY) * 0.5D;
+    }
+
+    /** 玩家实测速度（格/tick，已钳制） */
+    double ownerSpeed() {
+        return this.ownerVelocity.length();
     }
 
     /**
@@ -443,7 +551,8 @@ final class DroneNavigator {
             return false;
         }
         Vec3 forward = delta.normalize();
-        double step = Math.min(speed, DETOUR_STEP_MAX);
+        // 步长自适应：慢速维持 1 格精度，高速按速度 90% 跟进（绕障时也能追上坠落/飞行）
+        double step = Math.min(speed, Math.max(DETOUR_STEP_MAX, speed * 0.9D));
 
         if (this.wallFollowSide == 0) {
             this.wallFollowSide = chooseDetourSide(forward, target, step);

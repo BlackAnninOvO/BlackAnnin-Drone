@@ -35,6 +35,15 @@ import static org.lwjgl.system.libffi.LibFFI.ffi_type_void;
  * 用 LWJGL JNI + libffi 调用 SpoutLibrary.dll，避开 Java 21 预览 FFM，
  * 也不依赖当前 LWJGL 版本没有的 invokePI 长参数重载。
  *
+ * <p>虚表槽位以官方 SDK 2.007.017 的 SpoutLibrary.h 为准：
+ * 0=SetSenderName · 1=SetSenderFormat · 2=ReleaseSender · 3=SendFbo · 4=SendTexture。
+ * （0.7.0 排障发现：曾误按"0=CreateSender/3=SendTexture"调用——实际调到了
+ * SetSenderName 与 SendFbo，后者参数错位后回退读"当前绑定帧缓冲"，恰为 main，
+ * 推流内容碰巧一致而未暴露，OSD 等纹理内改动则永远丢失。）</p>
+ *
+ * <p>发送流程：SetSenderName 命名后，SendTexture 按当前名称/尺寸自动创建、
+ * 更新发送端，无需显式 CreateSender。</p>
+ *
  * <p>发送约定：纹理已由调用方预先垂直翻转（glBlitFramebuffer 反向 Y 实现），
  * 因此 SendTexture 以 invert=false 调用，让 Spout 走直接拷贝路径、
  * 不触碰其内部 FBO（invert=true 会触发库内部 FBO 绑定，
@@ -49,7 +58,7 @@ public final class SpoutSender {
     private static boolean hookRegistered;
     private static SharedLibrary library;
     private static long spout;
-    private static long createSenderFn;
+    private static long setSenderNameFn;
     private static long releaseSenderFn;
     private static long sendTextureFn;
     private static int senderWidth;
@@ -91,9 +100,12 @@ public final class SpoutSender {
                 throw new IllegalStateException("GetSpout 返回空指针");
             }
             long vtable = MemoryUtil.memGetAddress(spout);
-            createSenderFn = MemoryUtil.memGetAddress(vtable);
-            releaseSenderFn = MemoryUtil.memGetAddress(vtable + POINTER_SIZE);
-            sendTextureFn = MemoryUtil.memGetAddress(vtable + 3L * POINTER_SIZE);
+            // 官方 SpoutLibrary.h（SDK 2.007.017）虚表槽位：
+            // 0=SetSenderName(const char*) 1=SetSenderFormat(DWORD) 2=ReleaseSender(DWORD)
+            // 3=SendFbo(FboID,w,h,invert) 4=SendTexture(TexID,Target,w,h,invert,HostFBO)
+            setSenderNameFn = MemoryUtil.memGetAddress(vtable);
+            releaseSenderFn = MemoryUtil.memGetAddress(vtable + 2L * POINTER_SIZE);
+            sendTextureFn = MemoryUtil.memGetAddress(vtable + 4L * POINTER_SIZE);
             available = true;
             registerShutdownHook();
             BlackAnninsDrone.LOGGER.info("Spout 发送器已加载: {}", dll);
@@ -103,37 +115,44 @@ public final class SpoutSender {
         }
     }
 
-    /** 纹理必须为已翻转的成品帧；分辨率变化时自动重建发送器（免重启即时生效） */
-    public static void send(int textureId, int width, int height) {
+    /**
+     * 纹理必须为已翻转的成品帧；分辨率变化时自动重建发送器（免重启即时生效）。
+     *
+     * @param hostFboId 承载该纹理的帧缓冲 ID（SendTexture 的 hostFbo 契约：Spout 从它拷贝；
+     *                  传 0 时部分回退路径会改读"当前绑定的帧缓冲"，在推流管线中恰为
+     *                  main 而非 saveTarget，导致 OSD 等纹理内改动丢失）
+     */
+    public static void send(int textureId, int hostFboId, int width, int height) {
         if (!available || textureId <= 0 || spout == NULL) {
             return;
         }
         String name = ClientConfig.SPOUT_SENDER_NAME.get();
         try {
-            if (!name.equals(senderName) || senderWidth != width || senderHeight != height) {
-                if (!senderName.isEmpty()) {
-                    callRelease();
-                    senderActive = false;
-                    if (senderWidth != width || senderHeight != height) {
-                        BlackAnninsDrone.LOGGER.info("Spout 输出分辨率切换: {}x{} -> {}x{}", senderWidth, senderHeight, width, height);
-                    }
-                }
+            if (!name.equals(senderName)) {
+                // 名称变化：释放旧发送端 → 设置新名称（之后的 SendTexture 按新名自动重建）
+                callRelease();
+                senderActive = false;
                 try (MemoryStack stack = MemoryStack.stackPush()) {
-                    long namePtr = MemoryUtil.memAddress(stack.UTF8(name));
-                    if (callCreateSender(namePtr, width, height) == 0) {
-                        BlackAnninsDrone.LOGGER.warn("CreateSender 失败: {}", name);
-                        return;
-                    }
+                    callSetSenderName(MemoryUtil.memAddress(stack.UTF8(name)));
                 }
+                BlackAnninsDrone.LOGGER.info("Spout 发送器名称: {}", name);
                 senderName = name;
+                senderWidth = 0;
+                senderHeight = 0;
+            }
+            if (senderWidth != width || senderHeight != height) {
+                if (senderWidth != 0 && senderHeight != 0) {
+                    BlackAnninsDrone.LOGGER.info("Spout 输出分辨率切换: {}x{} -> {}x{}", senderWidth, senderHeight, width, height);
+                }
                 senderWidth = width;
                 senderHeight = height;
-                senderActive = true;
                 // 输出分辨率写入日志：OBS 的 Spout 源需按此尺寸（或重新添加源）才能满屏；
                 // 画面按窗口宽高比居中，四周多余区域为全透明（spoutKeepAspect）
                 BlackAnninsDrone.LOGGER.info("Spout 输出分辨率已就绪: {}x{}（发送器 {}）", width, height, name);
             }
-            callSendTexture(textureId, GL11.GL_TEXTURE_2D, width, height, false, 0);
+            // SendTexture 会按 SetSenderName 设置的名称与传入尺寸自动创建/更新发送端
+            callSendTexture(textureId, hostFboId, width, height, false);
+            senderActive = true;
         } catch (Throwable t) {
             BlackAnninsDrone.LOGGER.warn("Spout 发送失败: {}", t.toString());
             // 本会话停止重试；发送端仍由 senderActive 跟踪，release() 时会被真正释放
@@ -175,37 +194,29 @@ public final class SpoutSender {
         Runtime.getRuntime().addShutdownHook(new Thread(SpoutSender::release, "BlackAnninDrone-SpoutCleanup"));
     }
 
-    /** CreateSender(this, name, w, h, format) */
-    private static int callCreateSender(long namePtr, int width, int height) {
+    /** SetSenderName(this, name)：虚表槽位 0。先命名，之后所有发送函数按此名称创建/更新发送端 */
+    private static void callSetSenderName(long namePtr) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer types = stack.mallocPointer(5);
+            PointerBuffer types = stack.mallocPointer(2);
             types.put(ffi_type_pointer.address());
             types.put(ffi_type_pointer.address());
-            types.put(ffi_type_uint32.address());
-            types.put(ffi_type_uint32.address());
-            types.put(ffi_type_uint32.address());
             types.flip();
 
             FFICIF cif = FFICIF.malloc(stack);
-            if (ffi_prep_cif(cif, FFI_DEFAULT_ABI, ffi_type_sint32, types) != FFI_OK) {
-                throw new IllegalStateException("ffi_prep_cif CreateSender 失败");
+            if (ffi_prep_cif(cif, FFI_DEFAULT_ABI, ffi_type_void, types) != FFI_OK) {
+                throw new IllegalStateException("ffi_prep_cif SetSenderName 失败");
             }
 
-            PointerBuffer args = stack.mallocPointer(5);
+            PointerBuffer args = stack.mallocPointer(2);
             args.put(argPtr(stack, spout));
             args.put(argPtr(stack, namePtr));
-            args.put(argInt(stack, width));
-            args.put(argInt(stack, height));
-            args.put(argInt(stack, 0));
             args.flip();
 
-            ByteBuffer result = stack.calloc(4);
-            ffi_call(cif, createSenderFn, result, args);
-            return result.getInt(0);
+            ffi_call(cif, setSenderNameFn, null, args);
         }
     }
 
-    /** ReleaseSender(this, dwMsec) */
+    /** ReleaseSender(this, dwMsec)：虚表槽位 2 */
     private static void callRelease() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             PointerBuffer types = stack.mallocPointer(2);
@@ -228,8 +239,8 @@ public final class SpoutSender {
         }
     }
 
-    /** SendTexture(this, texId, target, w, h, invert, hostFbo) */
-    private static void callSendTexture(int textureId, int target, int width, int height, boolean invert, int hostFbo) {
+    /** SendTexture(this, texId, target, w, h, invert, hostFbo)：虚表槽位 4，纹理所在 FBO 一并传入 */
+    private static void callSendTexture(int textureId, int hostFbo, int width, int height, boolean invert) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             PointerBuffer types = stack.mallocPointer(7);
             types.put(ffi_type_pointer.address());
@@ -249,7 +260,7 @@ public final class SpoutSender {
             PointerBuffer args = stack.mallocPointer(7);
             args.put(argPtr(stack, spout));
             args.put(argInt(stack, textureId));
-            args.put(argInt(stack, target));
+            args.put(argInt(stack, GL11.GL_TEXTURE_2D));
             args.put(argInt(stack, width));
             args.put(argInt(stack, height));
             args.put(argByte(stack, invert ? (byte) 1 : (byte) 0));

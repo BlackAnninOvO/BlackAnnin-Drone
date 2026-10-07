@@ -14,7 +14,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 **BlackAnnin的无人机** 添加了一架可收回的航拍无人机。放飞后它会悬浮跟随着你飞行，能自主绕过障碍、穿过门洞与矮通道找到你；想亲自掌舵时，掏出**无人机遥控器**（或按下 J 键），用键盘和鼠标像操作真实穿越机一样**丝滑地**驾驶它，遥测面板上罗盘、人工地平仪、高度与速度一目了然。它的摄像头画面以**原版渲染管线**渲染，并通过 **Spout2** 实时发送给 OBS —— 直播、录航拍镜头，都随你。
 
-模组 ID：`blackannin_drone` ｜ 版本：`0.6.1-1.21.1` ｜ 协议：MIT
+模组 ID：`blackannin_drone` ｜ 版本：`0.7.0-1.21.1` ｜ 协议：MIT
 
 ## 功能特性
 
@@ -28,8 +28,8 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 ### 跟随与飞行
 
 - **距离与高度可调**：默认跟随在你身后 3 格、上方 1 格，均可在配置中调整。
-- **速度联动**：无人机速度随你的移动速度提升（含创造模式飞行），可设置联动系数与最高速度上限，高速移动不再掉队。
-- **平滑跟随**：水平方向缓动跟随；垂直方向在你**落地时始终跟随高度**（跑酷逐格上升也能跟上），空中只有真正的大幅升降（飞行、坠落）才跟随，**跑跳与原地连跳都不会让其上下浮动**；移动加减速同样做了平滑，避免顿挫。
+- **速度联动**：无人机速度随你的移动速度**实时提升**——速度按相邻时刻的位移实测（鞘翅、创造飞行及其他模组的飞行方式都能跟随），高速移动时无人机会自动突破常规速度上限紧跟你，不再依赖传送兜底。
+- **平滑跟随**：水平方向缓动跟随；垂直方向在你**落地时始终跟随高度**（跑酷逐格上升也能跟上），空中只有真正的大幅升降（飞行、坠落）才跟随，**跑跳与原地连跳都不会让其上下浮动**；大幅升降时垂直追踪**三级加速**同速跟上（无人机保持在你的上方**俯拍跟随**），且**镜头偏航与俯仰自动对准你**，坠落与爬升全程把你框在画面里；移动加减速同样做了平滑，避免顿挫。
 - **爬行跟随**：当你钻活板门、爬 1 格高通道时，跟随点会切换为「贴身且与你同高」，无人机从**同一个洞口**钻进来跟随，而不是在外面绕飞。
 - **强制传送兜底**：与你的距离超过阈值（默认 16 格）时立即传送到你身边；**你死亡时它原地等待**，复活后自动跟来；**跨维度**（下界/末地/传送）同样自动跟随；**退出游戏后原地留驻**，下次进入世界接着用。
 
@@ -50,12 +50,14 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 - **分辨率实时生效**：输出分辨率默认 **1920×1080**，在配置中修改后**下一帧立即生效**，无需重启游戏。
 - **独立视场角**：无人机视角默认 **70**（我的世界默认值），不随你的视场角或疾跑变化；可用控制面板的滑块在 30~110 之间实时调节。
 - **排障开关**：开启 `spoutDebugDump` 后，每次开始推流会把**实际发送给 OBS 的那一帧**导出为游戏目录下的 `drone_stream_debug.png`，便于判断问题出在模组侧还是 OBS 侧。
+- **推流 OSD 叠加**：发给 OBS 的画面上可叠加航拍风格的 OSD——左上角 **REC 闪烁指示**（PRO 模式附录制时长）、中心**加粗放大十字准星**，两种显示模式随时切换：**CLEAN 纯净** = 底部**遥测条**（模式/高度/距离/水平速度/航向+方位）+ 小准星；**PRO 专业** = 参照真实无人机 FPV 界面的全屏布局——顶部**航向刻度带**（±45° 滑窗+N/E/S/W 主刻度）、右上世界坐标、右缘**高度刻度尺**（±20m 滑窗）、左侧俯仰、中部**人工地平线**、底部水平速度/垂直速度/**Home 方向箭头**与距离/模式。与操控台同套配色，随输出分辨率自适应缩放、只对齐实际画面区域。OSD **仅存在于推流帧中，玩家自己的屏幕完全看不到**；客户端配置 `spoutOsd` 总开关、`spoutOsdPro` 模式切换，修改后下一帧实时生效。
 
 ### 无人机遥控器与操控台（v0.5.0 重制）
 
 - **无人机遥控器**：新增物品（创造物品栏可取）。手持**右键**即可打开操控台；默认按键 `J` 也能打开；还可以用指令 `/droneui` 直接呼出。物品采用 BlockBench 制作的 3D 模型，手持、物品栏与掉落物展示姿态均已调好。
 - **手动接管制**：打开面板默认处于"观察"状态（无人机继续自动跟随），点击**「手动操纵」**按钮或按 `K` 才会接管；接管后 `WASD` 三轴连续移动、`空格`/`左Shift` 升降——按住就持续飞行，加减速平滑，撞墙自动贴墙滑行。「手动操纵」与**「恢复跟随」**（或 `R`）是两个独立按钮、按状态互相点亮，交还控制权后鼠标怎么动都不会误接管。手动模式活动半径可在配置中调整（默认 64 格），靠近边界会被柔性拉回。
 - **两种视角模式**（面板切换或按 `V`，**默认摇杆（手柄）模式**，切换后自动记住）：**鼠标直接控制**——接管后自动锁定光标，移动鼠标即可**无限旋转**视角，完全不受窗口边界限制；此时摇杆不再显示，面板底部的提示会变成「`V` 解锁鼠标（切换为摇杆视角）」，配合 `R` 恢复跟随、`X` 回收即可完成全部操作；**摇杆渐进控制**——拖动面板左下角的摇杆，视角以角速度缓慢跟随、松手自动回中（下拉为低头），光标正常显示可拖动 UI。摇杆灵敏度在面板内实时拖动调节（0.5~12）。
+- **自动运镜（电影模式）**：点击「自动运镜」按钮，无人机化身**自动摄影师**——环绕、追尾、**正前方**、侧跟四种机位按时长自动轮换（正前方偏约 20°、侧跟 70°，都是更有电影感的 3/4 侧面构图），像电影运镜一样实时跟随你：行走、疾跑甚至鞘翅飞行都**跟得上**（速度前馈），镜头**始终对准你**且平滑不眩晕；**原地跳跃镜头纹丝不动**（跳跃期间垂直基准、速度前馈与升降剖面全部锁定），每个镜头自带升降（Crane）起伏——环绕/侧跟缓慢升再降、追尾稍高、正前方稍低仰拍；切换镜头沿弧线滑入而非瞬切、不会横穿你的视野。半径、角速度、高度与镜头时长均可在配置中调整；再次点击按钮或按 `K` 接管即可退出；视线被阻挡 5 秒会自动退出并恢复跟随。
 - **航测风格操控台**：顶部 LINK 连接状态灯；滚动罗盘刻度带（N/E/S/W）；**人工地平仪**（分割线随俯仰滚动）；右侧遥测中英双语实时刷新——模式 MODE、高度 ALT、距离 DIST、水平速度 H.SPD、垂直速度 V.SPD、航向 HDG、坐标 POS。
 - **「重置视角」按钮（或按 `C`）**：把无人机视角对准你本人面向的方向、俯仰归零，飞迷糊时一键回正；点击**「恢复跟随」时也会自动初始化视角**，手动模式遗留的朝向不会带进跟随视角。
 - **`X` 回收无人机**：收回并返还物品；`ESC` 关闭面板后无人机会原地悬停待命。
@@ -76,6 +78,10 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 | `droneManualSpeed` | 0.5 | 手动操控模式的飞行速度上限（格/tick，可调 0.1~2.0；默认 0.5 约合 10 格/秒，想要更快就调大） |
 | `droneManualRadius` | 64.0 | 手动操控模式的活动半径（格），可调上限 **128**；独立于强制传送距离 |
 | `droneTeleportDistance` | 16.0 | 超过该距离强制传送回玩家身边（格）；**仅自动跟随模式生效**，手动模式由活动半径柔性限制 |
+| `droneCinemaRadius` | 5.0 | 自动运镜环绕半径（格）；追尾/侧跟机位距离随之联动 |
+| `droneCinemaSpeed` | 2.5 | 自动运镜环绕角速度（度/tick，2.5 ≈ 9.6 秒一周） |
+| `droneCinemaHeight` | 1.5 | 自动运镜相机相对玩家高度（格） |
+| `droneCinemaShotSeconds` | 10 | 自动运镜每个镜头的持续秒数（环绕→追尾→侧跟轮换） |
 
 **客户端配置（`config/blackannin_drone-client.toml`）**
 
@@ -88,6 +94,8 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 | `spoutLibraryPath` | 空 | SpoutLibrary.dll 路径，留空自动搜索 |
 | `droneFov` | 70.0 | 无人机视角视场角（独立于玩家设置） |
 | `spoutKeepAspect` | true | 保持窗口宽高比：非输出比例时画面居中缩放，四周为**全透明**（便于 OBS 叠加合成，而非黑边） |
+| `spoutOsd` | true | 推流画面 OSD 叠加；仅推流帧可见，玩家画面不受影响，实时开关 |
+| `spoutOsdPro` | false | OSD 专业模式（PRO）：全屏参数 + 加粗十字准星 + 航向刻度带/高度刻度尺/人工地平线/Home 指示（关闭为 CLEAN 纯净模式） |
 | `spoutDebugDump` | false | 排障：导出实际发送的帧为 PNG |
 
 ## 安装要求
@@ -119,7 +127,7 @@ Aerial drone mod for Minecraft **1.21.1 (NeoForge 21.1.25x)**: deploy a drone th
 
 **BlackAnnin's Drone** adds a retrievable aerial drone to Minecraft. Once deployed it hovers and follows you, navigates around obstacles, squeezes through doorways and crawl spaces to reach you. And when you feel like taking the stick yourself, pull out the **Drone Remote** (or press `J`) and fly it with your keyboard and mouse, as smooth as a real FPV quad — compass, artificial horizon, altitude and speed all live on the telemetry panel. Its camera feed is rendered through the **vanilla render pipeline** and streamed to OBS in real time over **Spout2** — great for live streams and cinematic aerial shots.
 
-Mod ID: `blackannin_drone` · Version: `0.6.1-1.21.1` · License: MIT
+Mod ID: `blackannin_drone` · Version: `0.7.0-1.21.1` · License: MIT
 
 ## Features
 
@@ -133,8 +141,8 @@ Mod ID: `blackannin_drone` · Version: `0.6.1-1.21.1` · License: MIT
 ### Following & Flight
 
 - **Tunable distance and height**: 3 blocks behind and 1 block above you by default, both configurable.
-- **Speed scales with you**: the drone speeds up with your movement (creative flight included) with configurable factor and top speed, so it no longer falls behind.
-- **Smooth following**: eased horizontal tracking; it always follows your height **while you are on the ground** (so block-by-block parkour climbs are matched), follows only real altitude changes while airborne (flight, falling), and **ignores the jump arc entirely** — so neither running jumps nor in-place bunny hopping make the view bob. Acceleration is smoothed as well.
+- **Speed scales with you**: the drone's speed tracks your movement **in real time** — measured from frame-to-frame displacement, so elytra, creative flight and any mod-added flight all work; at high speeds the drone automatically exceeds its normal speed cap to stay right behind you instead of relying on teleports.
+- **Smooth following**: eased horizontal tracking; it always follows your height **while you are on the ground** (so block-by-block parkour climbs are matched), follows only real altitude changes while airborne (flight, falling), and **ignores the jump arc entirely** — so neither running jumps nor in-place bunny hopping make the view bob. Large altitude changes get **three-stage vertical acceleration** so the drone stays above you and descends at your speed (looking down, follow-cam style), and the camera **aims at you in both yaw and pitch** while you climb or fall. Acceleration is smoothed as well.
 - **Crawl-aware**: when you crawl through a trapdoor or a one-block-high tunnel, the follow point switches to "hugging you at your own height", so the drone **comes in through the very same opening** instead of flying around outside.
 - **Teleport fallbacks**: instantly teleports to you beyond the configured distance (16 blocks by default); **waits in place when you die** and follows again after you respawn; follows you **across dimensions**; and **stays in the world when you quit**, ready to pick up where you left off.
 
@@ -155,12 +163,14 @@ This is where most of the work went — the drone will not just bump into walls:
 - **Live resolution**: output defaults to **1920×1080** and changes apply **on the very next frame**, no game restart needed.
 - **Independent FOV**: the drone view defaults to **70** (the Minecraft default) and is unaffected by your own FOV or sprinting. Adjustable live between 30 and 110 with the slider in the control panel.
 - **Debug option**: enable `spoutDebugDump` to export the **exact frame sent to OBS** as `drone_stream_debug.png` in the game directory — ideal for telling whether a problem lies in the mod or in OBS.
+- **Stream OSD overlay**: the frame sent to OBS can carry an avionics-style OSD — a blinking **REC indicator** (with a REC timer in PRO mode), a **bold enlarged crosshair**, and two switchable display modes: **CLEAN** = a bottom **telemetry bar** (mode/altitude/distance/speed/heading+cardinal) + small reticle; **PRO** = a full-screen layout modeled after real drone FPV interfaces — a **heading ribbon** top-center (±45° window with N/E/S/W marks), world position top-right, an **altitude scale** on the right edge, pitch on the left, an **artificial horizon**, and horizontal/vertical speed, a **home direction arrow** with distance, and mode along the bottom. Same palette as the console, scaled to the output resolution and aligned to the actual picture area (never drawn into the transparent borders). The OSD **exists only in the streamed frame — your own screen never shows it**; the client config `spoutOsd` is the master switch and `spoutOsdPro` toggles the mode, applied live on the next frame.
 
 ### Drone Remote & Console (reworked in v0.5.0)
 
 - **Drone Remote**: a new item (also in the creative inventory). **Right-click** it to open the drone console; the `J` key (configurable) does the same, and so does the `/droneui` command. The item uses a 3D BlockBench model, with display poses tuned for hand, inventory, ground and frames.
 - **Take-control gating**: the console opens in an observe state (the drone keeps following automatically); only after clicking **Take Control** or pressing `K` do the controls respond — `WASD` for continuous three-axis movement, `Space`/`Left Shift` to climb or descend. Hold a key and it **keeps flying**, with smoothed acceleration and deceleration; bumping into a wall makes it slide along it. Click **Reset Follow** or press `R` to hand control back for good — moving the mouse afterwards will never re-take it. Manual range is configurable (64 blocks by default) and softly pulled back near the boundary.
 - **Two view modes** (switch on the panel or with `V`; **stick/gamepad mode by default**, and your choice is remembered): **Mouse** — the cursor is locked once you take control, so the mouse rotates the view endlessly with no window-edge limit; the joystick is hidden and the hint line becomes "`V` unlock the mouse (switch to stick view)", with `R` to reset follow and `X` to retrieve. **Stick** — drag the joystick in the lower-left corner; the view follows its deflection at an adjustable rate and re-centers on release (pull down to pitch down), and the cursor stays visible for the UI. Stick sensitivity is a live slider (0.5–12).
+- **Cinematic mode**: hit the **Cinematic** button and the drone becomes an **autopilot camera operator** — orbit, chase, **front** and tracking shots rotate automatically like a film crew: it **keeps up** while you walk, sprint or even elytra-fly (velocity feed-forward), the camera **always aims at you** smoothly without jitter, and **jumping on flat ground does not bounce the camera** (the same jump filtering as follow mode). Each shot carries its own crane profile — orbit/tracking slowly rise then settle, chase rides a little higher, front sits low for an upward angle — and shot changes glide along an arc instead of cutting across your view. Radius, angular speed, height and shot duration are configurable; click the button again or press `K` to take over and exit; if the view stays blocked for 5 seconds it exits and resumes following.
 - **Avionics-style console**: a `LINK` status lamp on top; a scrolling compass ribbon (N/E/S/W); an **artificial horizon** whose split line rolls with pitch; and bilingual live telemetry on the right — MODE, ALT, DIST, H.SPD, V.SPD, HDG and POS.
 - **Reset View** button (or press `C`): snaps the drone's view to the direction you are facing with a level pitch — one tap to re-orient when you lose your bearings; clicking **Reset Follow** also initializes the view, so the heading left over from manual flight never carries into follow mode.
 - **`X` retrieves** the drone and returns the item; after closing with `ESC` the drone hovers in place, standing by.
@@ -181,6 +191,10 @@ This is where most of the work went — the drone will not just bump into walls:
 | `droneManualSpeed` | 0.5 | Manual-mode top speed (blocks/tick, tunable 0.1–2.0; the 0.5 default is about 10 blocks/s — raise it if you want more punch) |
 | `droneManualRadius` | 64.0 | Manual-mode operating radius (blocks), up to **128**; independent of the teleport distance |
 | `droneTeleportDistance` | 16.0 | Teleport back to the owner beyond this distance (blocks); **follow mode only** — manual mode is softly bounded by its own radius |
+| `droneCinemaRadius` | 5.0 | Cinematic orbit radius (blocks); chase/tracking distances scale with it |
+| `droneCinemaSpeed` | 2.5 | Cinematic orbit angular speed (deg/tick; 2.5 ≈ one lap in 9.6s) |
+| `droneCinemaHeight` | 1.5 | Cinematic camera height above the player (blocks) |
+| `droneCinemaShotSeconds` | 10 | Seconds per cinematic shot (cycles orbit, chase, tracking) |
 
 **Client (`config/blackannin_drone-client.toml`)**
 
@@ -193,6 +207,8 @@ This is where most of the work went — the drone will not just bump into walls:
 | `spoutLibraryPath` | empty | Path to SpoutLibrary.dll; empty = auto-detect |
 | `droneFov` | 70.0 | Drone view FOV (independent of the player setting) |
 | `spoutKeepAspect` | true | Keep the window aspect ratio: the frame is centered and any leftover area is **fully transparent** (for compositing in OBS, instead of black bars) |
+| `spoutOsd` | true | Stream OSD overlay; visible in the stream only, live toggle |
+| `spoutOsdPro` | false | PRO OSD mode: full-screen parameters + bold crosshair + heading ribbon/altitude scale/artificial horizon/home indicator (off = CLEAN) |
 | `spoutDebugDump` | false | Debug: write the actual sent frame to a PNG |
 
 ## Requirements

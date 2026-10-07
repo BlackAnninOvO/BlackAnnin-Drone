@@ -153,8 +153,15 @@ public final class DroneCameraRenderer {
             mc.gameRenderer.renderLevel(event.getPartialTick());
             renderingDrone = false;
 
-            blitToSave(mc, outWidth, outHeight);
-            SpoutSender.send(saveTarget.getColorTextureId(), outWidth, outHeight);
+            StreamOsd.PictureRect picture = blitToSave(mc, outWidth, outHeight);
+            // OSD 仅叠加在推流帧（saveTarget）上：CPU 像素合成，玩家画面不受影响；
+            // 内部整段 try-catch，任何异常只跳过本次 OSD，不影响推流
+            if (ClientConfig.SPOUT_OSD.get()) {
+                StreamOsd.apply(mc, saveTarget, picture, drone);
+            }
+            // hostFbo 传 saveTarget 自身的 FBO：SendTexture 从该帧缓冲拷贝，
+            // 传 0 会回退读"当前绑定帧缓冲"（此时尚为 main），OSD 会丢失
+            SpoutSender.send(saveTarget.getColorTextureId(), saveTarget.frameBufferId, outWidth, outHeight);
             // 排障：spoutDebugDump 开启时按固定间隔覆盖导出实际推送帧
             if (ClientConfig.SPOUT_DEBUG_DUMP.get() && dumpCooldown-- <= 0) {
                 dumpStreamFrame();
@@ -250,8 +257,12 @@ public final class DroneCameraRenderer {
         }
     }
 
-    /** 主渲染目标 → 推流帧的缩放 + 垂直翻转拷贝 */
-    private static void blitToSave(Minecraft mc, int width, int height) {
+    /**
+     * 主渲染目标 → 推流帧的缩放 + 垂直翻转拷贝。
+     *
+     * @return 实际画面区域（等比缩放后的位置与尺寸），供 OSD 对齐画面而非透明边
+     */
+    private static StreamOsd.PictureRect blitToSave(Minecraft mc, int width, int height) {
         RenderTarget main = mc.getMainRenderTarget();
         GlStateManager._disableScissorTest();
         GlStateManager._colorMask(true, true, true, true);
@@ -307,6 +318,7 @@ public final class DroneCameraRenderer {
         GlStateManager._disableScissorTest();
         GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, main.frameBufferId);
         main.bindWrite(false);
+        return new StreamOsd.PictureRect(dstX, dstY, dstW, dstH);
     }
 
     /** 推流帧尺寸跟随配置，改变后下一帧立即重建（无需重启） */
@@ -330,6 +342,8 @@ public final class DroneCameraRenderer {
             backupTarget.destroyBuffers();
             backupTarget = null;
         }
+        // 重置 OSD 录制计时（复杂模式 REC 时长从下次推流重新起算）
+        StreamOsd.reset();
     }
 
     /** 关闭推流：释放渲染目标并注销 Spout 发送端 */

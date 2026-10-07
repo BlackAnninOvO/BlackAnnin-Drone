@@ -16,6 +16,7 @@ final class DroneHudRenderer {
     private static final int TEXT = 0xFFDDEEFF;
     private static final int DIM = 0xFF8FA3B8;
     private static final int OK = 0xFF3DE08A;
+    private static final int WARN = 0xFFFFB13D;
     private static final int PANEL_EDGE = 0xFF1E2C38;
     /** 罗盘刻度带显示的角度跨度（度） */
     private static final int SPAN_DEGREES = 120;
@@ -83,10 +84,18 @@ final class DroneHudRenderer {
         Minecraft mc = Minecraft.getInstance();
         boolean online = drone != null;
         int row = 0;
-        String mode = online && drone.isManuallyControlled()
-                ? Component.translatable("gui.blackannin_drone.drone_control.val_manual").getString()
-                : Component.translatable("gui.blackannin_drone.drone_control.val_follow").getString();
-        int modeColor = online && drone.isManuallyControlled() ? ACCENT : OK;
+        String mode;
+        int modeColor;
+        if (online && drone.isManuallyControlled()) {
+            mode = Component.translatable("gui.blackannin_drone.drone_control.val_manual").getString();
+            modeColor = ACCENT;
+        } else if (online && drone.isCinematic()) {
+            mode = Component.translatable("gui.blackannin_drone.drone_control.val_cinema").getString();
+            modeColor = WARN;
+        } else {
+            mode = Component.translatable("gui.blackannin_drone.drone_control.val_follow").getString();
+            modeColor = OK;
+        }
         row(g, font, x, y, row++, "tel_mode", mode, modeColor, valueRight);
         Vec3 p = online ? drone.position() : Vec3.ZERO;
         row(g, font, x, y, row++, "tel_alt", online ? String.format("%.1f m", p.y) : "--", TEXT, valueRight);

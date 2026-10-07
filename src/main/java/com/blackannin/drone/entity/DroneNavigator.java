@@ -63,6 +63,8 @@ final class DroneNavigator {
     private static final float MANUAL_PITCH_SENS = 0.35F;
     /** 判定盒收窄量：贴墙接触不算碰撞 */
     private static final double BOX_SHRINK = 0.05D;
+    /** 玩家实测速度的钳制上限（格/tick），防止传送等瞬时位移产生尖峰 */
+    private static final double OWNER_SPEED_CLAMP = 4.0D;
 
     private final DroneEntity drone;
 
@@ -86,6 +88,9 @@ final class DroneNavigator {
     private Vec3 progressAnchor;
     private int progressTicks;
     private int rerouteAttempts;
+    /** 玩家实测速度（相邻 tick 位移差）：服务端 getDeltaMovement 对玩家不可靠（附录 A 参考 5） */
+    private Vec3 lastOwnerPos;
+    private Vec3 ownerVelocity = Vec3.ZERO;
 
     DroneNavigator(DroneEntity drone) {
         this.drone = drone;
@@ -112,6 +117,8 @@ final class DroneNavigator {
         this.wallFollowSide = 0;
         this.progressAnchor = null;
         this.rerouteAttempts = 0;
+        this.lastOwnerPos = null;
+        this.ownerVelocity = Vec3.ZERO;
         this.path = List.of();
         this.pathIndex = 0;
     }
@@ -128,7 +135,17 @@ final class DroneNavigator {
         }
         Vec3 current = this.smoothedTarget;
         double dy = raw.y - current.y;
-        double newY = followHeight ? current.y + dy * VERTICAL_SMOOTHING : current.y;
+        // 垂直平滑三级加速：大幅升降（坠落、鞘翅俯冲、快速爬升）时快速跟上，避免镜头滞后掉队
+        double absDy = Math.abs(dy);
+        double factor = VERTICAL_SMOOTHING;
+        if (absDy > 6.0D) {
+            factor = 0.9D;
+        } else if (absDy > 3.0D) {
+            factor = 0.75D;
+        } else if (absDy > 1.5D) {
+            factor = 0.55D;
+        }
+        double newY = followHeight ? current.y + dy * factor : current.y;
         this.smoothedTarget = new Vec3(
                 current.x + (raw.x - current.x) * HORIZONTAL_SMOOTHING,
                 newY,
@@ -192,7 +209,7 @@ final class DroneNavigator {
             this.detourTicks = 0;
             return;
         }
-        double speed = speedForOwner(owner);
+        double speed = speedForOwner();
         if (tryDetour(target, speed)) {
             checkProgress(target, owner);
             return;
@@ -228,22 +245,32 @@ final class DroneNavigator {
         this.smoothedVelocity = this.smoothedVelocity.add(desired.subtract(this.smoothedVelocity).scale(VELOCITY_SMOOTHING));
 
         Vec3 step = this.smoothedVelocity;
-        if (isPassable(step)) {
-            doMove(step);
-        } else {
-            // 撞墙：按轴分解滑行，保持贴墙移动的丝滑感
-            Vec3 sx = new Vec3(step.x, 0.0D, 0.0D);
-            Vec3 sy = new Vec3(0.0D, step.y, 0.0D);
-            Vec3 sz = new Vec3(0.0D, 0.0D, step.z);
-            boolean moved = false;
-            if (step.x != 0.0D && isPassable(sx)) { doMove(sx); moved = true; }
-            if (step.z != 0.0D && isPassable(sz)) { doMove(sz); moved = true; }
-            if (step.y != 0.0D && isPassable(sy)) { doMove(sy); moved = true; }
-            if (!moved) {
-                this.smoothedVelocity = Vec3.ZERO;
-            }
+        if (!moveWithSlide(step)) {
+            // 全方向受阻：清零速度，避免贴墙时持续积累
+            this.smoothedVelocity = Vec3.ZERO;
         }
         clampToOwnerRadius(owner, Config.DRONE_MANUAL_RADIUS.get());
+    }
+
+    /**
+     * 受控移动一步（手动模式与运镜共用）：整步优先，受阻时按轴分解滑行，
+     * 保持贴墙移动的丝滑感。
+     *
+     * @return 是否产生了位移（全方向受阻返回 false）
+     */
+    boolean moveWithSlide(Vec3 step) {
+        if (isPassable(step)) {
+            doMove(step);
+            return true;
+        }
+        Vec3 sx = new Vec3(step.x, 0.0D, 0.0D);
+        Vec3 sy = new Vec3(0.0D, step.y, 0.0D);
+        Vec3 sz = new Vec3(0.0D, 0.0D, step.z);
+        boolean moved = false;
+        if (step.x != 0.0D && isPassable(sx)) { doMove(sx); moved = true; }
+        if (step.z != 0.0D && isPassable(sz)) { doMove(sz); moved = true; }
+        if (step.y != 0.0D && isPassable(sy)) { doMove(sy); moved = true; }
+        return moved;
     }
 
     /** 手动活动半径限制：越界位置拉回圆形/高度范围（向内移动必然可通行） */
@@ -279,7 +306,7 @@ final class DroneNavigator {
             drone.setDeltaMovement(Vec3.ZERO);
             return true;
         }
-        double speed = speedForOwner(owner);
+        double speed = speedForOwner();
         Vec3 desired = delta.scale(Math.min(1.0D, speed / dist));
         this.smoothedVelocity = this.smoothedVelocity.add(desired.subtract(this.smoothedVelocity).scale(VELOCITY_SMOOTHING));
         if (this.smoothedVelocity.lengthSqr() > speed * speed) {
@@ -295,7 +322,7 @@ final class DroneNavigator {
     }
 
     /** 与目标之间是否有通畅的视线（只判实心方块，放行水、打开的门/活板门等） */
-    private boolean hasLineOfSight(Vec3 target) {
+    boolean hasLineOfSight(Vec3 target) {
         Vec3 from = new Vec3(drone.getX(), drone.getY() + drone.getBbHeight() * 0.5D, drone.getZ());
         HitResult hit = drone.level().clip(new ClipContext(from, target,
                 ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, drone));
@@ -341,12 +368,28 @@ final class DroneNavigator {
         this.detourTicks = DETOUR_MEMORY_TICKS;
     }
 
-    /** 无人机速度随玩家移动速度提升，并受最大速度限制 */
-    private double speedForOwner(Player owner) {
-        Vec3 velocity = owner.getDeltaMovement();
-        double playerSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    /** 每 tick 实测玩家速度（相邻 tick 位移差，钳制防传送尖峰） */
+    void updateOwnerVelocity(Player owner) {
+        Vec3 pos = owner.position();
+        Vec3 vel = this.lastOwnerPos == null ? Vec3.ZERO : pos.subtract(this.lastOwnerPos);
+        this.lastOwnerPos = pos;
+        if (vel.lengthSqr() > OWNER_SPEED_CLAMP * OWNER_SPEED_CLAMP) {
+            vel = vel.normalize().scale(OWNER_SPEED_CLAMP);
+        }
+        this.ownerVelocity = vel;
+    }
+
+    /**
+     * 无人机跟随速度：基础速度 + 玩家实测速度联动。
+     * 玩家高速移动（坠落、鞘翅/创造/模组飞行等）时允许突破常规上限——
+     * 保证速度 ≥ 玩家实测速度的 1.2 倍（+余量），实现实时紧跟而不依赖传送兜底；
+     * 常规低速移动行为不变。
+     */
+    private double speedForOwner() {
+        double playerSpeed = this.ownerVelocity.length();
         double speed = FLY_SPEED + playerSpeed * Config.DRONE_SPEED_FACTOR.get();
-        return Mth.clamp(speed, FLY_SPEED, Config.DRONE_MAX_SPEED.get());
+        double dynamicMax = Math.max(Config.DRONE_MAX_SPEED.get(), playerSpeed * 1.2D + 0.2D);
+        return Mth.clamp(speed, FLY_SPEED, dynamicMax);
     }
 
     /** 碰撞检测：目标位置是否可通行（判定盒收窄，避免贴墙接触被误判为碰撞） */
@@ -480,8 +523,8 @@ final class DroneNavigator {
         this.detourTicks = DETOUR_MEMORY_TICKS;
     }
 
-    /** 绕 Y 轴旋转水平方向（角度制） */
-    private static Vec3 rotateY(Vec3 vec, double degrees) {
+    /** 绕 Y 轴旋转水平方向（角度制；运镜控制器复用同一约定） */
+    static Vec3 rotateY(Vec3 vec, double degrees) {
         double rad = Math.toRadians(degrees);
         double cos = Math.cos(rad);
         double sin = Math.sin(rad);

@@ -33,6 +33,11 @@ public class ModNetworking {
             if ((payload.flags() & RemoteControlPayload.FLAG_RESET_VIEW) != 0) {
                 drone.resetView(player);
             }
+            if ((payload.flags() & RemoteControlPayload.FLAG_CINEMA) != 0) {
+                // 切换自动运镜：运镜报文为专用包，处理后不再应用本包的输入
+                drone.toggleCinematic(player);
+                return;
+            }
             if ((payload.flags() & RemoteControlPayload.FLAG_TAKEOVER) != 0) {
                 drone.enterManualControl();
             }

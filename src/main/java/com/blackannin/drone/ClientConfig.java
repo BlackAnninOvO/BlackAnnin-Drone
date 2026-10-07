@@ -41,6 +41,16 @@ public class ClientConfig {
             .comment("四周留出【全透明】区域（而不是拉伸变形或填充黑边），便于在 OBS 中叠加合成。")
             .define("spoutKeepAspect", true);
 
+    public static final ModConfigSpec.BooleanValue SPOUT_OSD = BUILDER
+            .comment("推流画面叠加层（OSD）：在发给 OBS 的画面上叠加 REC 指示、中心准星与遥测条，")
+            .comment("仅存在于推流帧中，玩家自己的画面完全不受影响；修改后下一帧立即生效。")
+            .define("spoutOsd", true);
+
+    public static final ModConfigSpec.BooleanValue SPOUT_OSD_PRO = BUILDER
+            .comment("OSD 显示模式：false = CLEAN 纯净（底部遥测条 + 小准星），true = PRO 专业（航向刻度带、")
+            .comment("高度刻度尺、人工地平线、Home 指示、参数分布全屏 + 加粗放大十字准星）。修改后下一帧立即生效。")
+            .define("spoutOsdPro", false);
+
     public static final ModConfigSpec.BooleanValue SPOUT_DEBUG_DUMP = BUILDER
             .comment("排障用：每次开始推流时把实际发送的画面导出为游戏目录下的 drone_stream_debug.png")
             .define("spoutDebugDump", false);

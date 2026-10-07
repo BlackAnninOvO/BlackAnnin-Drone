@@ -50,6 +50,7 @@ import java.util.UUID;
 public class DroneEntity extends Mob implements OwnableEntity {
     private static final EntityDataAccessor<Optional<UUID>> OWNER_UUID = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Boolean> MANUAL_CONTROL = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Boolean> CINEMATIC = SynchedEntityData.defineId(DroneEntity.class, EntityDataSerializers.BOOLEAN);
 
     /** 玩家爬行时的跟随距离：贴近玩家，便于从同一洞口穿过 */
     private static final double CRAWL_FOLLOW_DISTANCE = 1.2D;
@@ -64,7 +65,9 @@ public class DroneEntity extends Mob implements OwnableEntity {
     /** 仅服务端：起飞倒计时。客户端从不读取，故用普通字段而非同步数据，避免起飞期间每 tick 发同步包 */
     private int takeoffTicks;
     /** 仅服务端：飞行导航 */
-    private final DroneNavigator navigator = new DroneNavigator(this);
+    final DroneNavigator navigator = new DroneNavigator(this);
+    /** 仅服务端：自动运镜（电影模式）控制器 */
+    private final DroneCinematographer cinematographer = new DroneCinematographer();
 
     public DroneEntity(EntityType<? extends Mob> entityType, Level level) {
         super(entityType, level);
@@ -122,6 +125,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         super.defineSynchedData(builder);
         builder.define(OWNER_UUID, Optional.empty());
         builder.define(MANUAL_CONTROL, false);
+        builder.define(CINEMATIC, false);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -195,8 +199,9 @@ public class DroneEntity extends Mob implements OwnableEntity {
             return;
         }
 
-        // 距离过远：强制传送回玩家身边（仅自动跟随模式；手动模式由操控半径软限制，不受该设置影响）
-        if (!this.entityData.get(MANUAL_CONTROL)) {
+        boolean cinematic = this.entityData.get(CINEMATIC);
+        // 距离过远：强制传送回玩家身边（仅自动跟随模式；手动/运镜模式各有自己的活动范围，不受该设置影响）
+        if (!this.entityData.get(MANUAL_CONTROL) && !cinematic) {
             double teleportDistance = Config.DRONE_TELEPORT_DISTANCE.get();
             if (this.position().distanceToSqr(owner.position()) > teleportDistance * teleportDistance) {
                 teleportToOwner(owner);
@@ -205,21 +210,30 @@ public class DroneEntity extends Mob implements OwnableEntity {
 
         // 先开门再移动：移动当帧门就已打开，避免无人机先撞一次门板
         openDoorsAlongPath();
-        this.navigator.tick();
-        boolean ownerOnGround = owner.onGround();
-        if (ownerOnGround) {
-            this.navigator.updateGroundAnchor(owner);
-        }
-        // 落地时跟随高度（跑酷逐格升降立即生效）；空中只有"非跳跃弧线"（飞行、坠落）才跟随，
-        // 因此跑跳与原地连跳都不会带动无人机上下移动
-        boolean followHeight = ownerOnGround || !this.navigator.isJumpArc(owner, ownerOnGround);
 
         if (this.entityData.get(MANUAL_CONTROL)) {
             // 手动模式视角完全由玩家的鼠标/摇杆控制
             this.navigator.flyManual(owner, remoteForward, remoteStrafe, remoteUp, remoteYawDelta, remotePitchDelta);
             this.remoteYawDelta = 0.0F;
             this.remotePitchDelta = 0.0F;
+        } else if (cinematic) {
+            // 自动运镜：机位实时跟随玩家；返回 false 表示视线长时间受阻，自动退出并恢复跟随
+            if (!this.cinematographer.tick(this, owner)) {
+                this.entityData.set(CINEMATIC, false);
+                this.setDeltaMovement(Vec3.ZERO);
+                owner.displayClientMessage(Component.translatable("chat.blackannin_drone.cinema_ended"), true);
+            }
         } else {
+            // 实测玩家速度（相邻 tick 位移差）：服务端 getDeltaMovement 对玩家不可靠
+            this.navigator.updateOwnerVelocity(owner);
+            this.navigator.tick();
+            boolean ownerOnGround = owner.onGround();
+            if (ownerOnGround) {
+                this.navigator.updateGroundAnchor(owner);
+            }
+            // 落地时跟随高度（跑酷逐格升降立即生效）；空中只有"非跳跃弧线"（飞行、坠落）才跟随，
+            // 因此跑跳与原地连跳都不会带动无人机上下移动
+            boolean followHeight = ownerOnGround || !this.navigator.isJumpArc(owner, ownerOnGround);
             // 玩家爬行（钻活板门/1 格高通道）时，跟随点改为贴身且与玩家同高，
             // 否则常规跟随点会落在方块里，无人机就会在外面绕飞而不是从洞口跟上
             Vec3 raw = isOwnerCrawling(owner) ? crawlFollowPoint(owner) : followPoint(owner);
@@ -228,6 +242,8 @@ public class DroneEntity extends Mob implements OwnableEntity {
             this.navigator.flyToward(target, owner);
             // 跟随时镜头朝主人面向的方向，FPV 呈现前进视角
             setYawSmooth(owner.getYRot());
+            // 大幅升降（真实高度变化）时镜头完整对准玩家拍摄其运动；跳跃弧线与平飞保持水平
+            aimCameraAtOwner(owner, followHeight);
         }
     }
 
@@ -289,6 +305,32 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.setYRot(this.getYRot() + delta * 0.2F);
         this.setYBodyRot(this.getYRot());
         this.setYHeadRot(this.getYRot());
+    }
+
+    /**
+     * 跟随模式升降镜头跟踪：玩家与无人机的高低差角超过阈值（大幅升降）时，
+     * 镜头偏航与俯仰完整对准玩家，保证其在画面内；跳跃弧线与水平飞行时回归
+     * "朝向玩家面向方向的水平视角"。
+     */
+    private void aimCameraAtOwner(Player owner, boolean followHeight) {
+        float targetPitch = 0.0F;
+        if (followHeight) {
+            Vec3 delta = owner.getEyePosition().subtract(this.position());
+            double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
+            if (horizontal > 1.0E-3D) {
+                float pitchToOwner = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
+                if (Math.abs(pitchToOwner) > 15.0F) {
+                    targetPitch = pitchToOwner;
+                    // 偏航也对准玩家：无人机位置漂移（绕障、路径跟随）时玩家仍始终在画面内
+                    float yawToOwner = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
+                    float yawDelta = Mth.degreesDifference(this.getYRot(), yawToOwner);
+                    this.setYRot(this.getYRot() + yawDelta * 0.2F);
+                    this.setYBodyRot(this.getYRot());
+                    this.setYHeadRot(this.getYRot());
+                }
+            }
+        }
+        this.setXRot(this.getXRot() + (targetPitch - this.getXRot()) * 0.2F);
     }
 
     /** 玩家是否处于爬行/低矮姿态（钻活板门、1 格高通道、游泳等） */
@@ -373,14 +415,33 @@ public class DroneEntity extends Mob implements OwnableEntity {
         this.xRotO = 0.0F;
     }
 
-    /** 恢复自动跟随 */
+    /** 恢复自动跟随（同时退出运镜：跟随与运镜/手动互斥） */
     public void stopManualControl() {
         this.entityData.set(MANUAL_CONTROL, false);
+        this.entityData.set(CINEMATIC, false);
     }
 
-    /** 进入手动模式（操控台"手动操纵"按钮/按键触发，输入到达前先切换状态） */
+    /** 进入手动模式（操控台"手动操纵"按钮/按键触发）；手动与运镜互斥，接管即退出运镜 */
     public void enterManualControl() {
         this.entityData.set(MANUAL_CONTROL, true);
+        this.entityData.set(CINEMATIC, false);
+    }
+
+    /** 切换自动运镜（操控台按钮触发）：运镜与手动模式互斥 */
+    public void toggleCinematic(Player owner) {
+        if (this.entityData.get(CINEMATIC)) {
+            this.entityData.set(CINEMATIC, false);
+            this.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        this.entityData.set(MANUAL_CONTROL, false);
+        this.cinematographer.start(this, owner);
+        this.entityData.set(CINEMATIC, true);
+    }
+
+    /** 是否处于自动运镜（客户端同步位，供操控台按钮状态与遥测显示） */
+    public boolean isCinematic() {
+        return this.entityData.get(CINEMATIC);
     }
 
     /** 是否存在被强开的门：导航需优先沿 A\* 路点对准门洞，避免视线直飞撞上门框 */
@@ -490,6 +551,7 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
         compound.putInt("TakeoffTicks", this.takeoffTicks);
         compound.putBoolean("ManualControl", this.entityData.get(MANUAL_CONTROL));
+        compound.putBoolean("Cinematic", this.entityData.get(CINEMATIC));
     }
 
     @Override
@@ -500,5 +562,6 @@ public class DroneEntity extends Mob implements OwnableEntity {
         }
         this.takeoffTicks = compound.getInt("TakeoffTicks");
         this.entityData.set(MANUAL_CONTROL, compound.getBoolean("ManualControl"));
+        this.entityData.set(CINEMATIC, compound.getBoolean("Cinematic"));
     }
 }

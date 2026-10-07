@@ -4,7 +4,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 
-/** 操控台扁平按钮：描边 + 悬停高亮；active=false 时置灰且不可点击。 */
+/** 操控台扁平按钮：描边 + 悬停高亮；active=false 时置灰且不可点击；toggled 为选中常亮态（如自动运镜开启）。 */
 final class FlatButton {
     private static final int EDGE = 0xFF1E2C38;
     private static final int ACCENT = 0xFF00D9FF;
@@ -15,6 +15,7 @@ final class FlatButton {
     private final Runnable onClick;
     private Component label;
     private boolean active = true;
+    private boolean toggled;
 
     FlatButton(int x, int y, int w, int h, String key, Runnable onClick) {
         this.x = x;
@@ -33,11 +34,15 @@ final class FlatButton {
         this.active = active;
     }
 
+    void setToggled(boolean toggled) {
+        this.toggled = toggled;
+    }
+
     void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
         boolean hover = active && mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
-        g.fill(x, y, x + w, y + h, hover ? 0xFF16323F : 0xFF101A22);
-        g.renderOutline(x, y, w, h, hover ? ACCENT : EDGE);
-        int labelColor = !active ? DISABLED : hover ? ACCENT : TEXT;
+        g.fill(x, y, x + w, y + h, toggled ? 0xFF0E3A4A : hover ? 0xFF16323F : 0xFF101A22);
+        g.renderOutline(x, y, w, h, toggled || hover ? ACCENT : EDGE);
+        int labelColor = !active ? DISABLED : toggled || hover ? ACCENT : TEXT;
         g.drawCenteredString(font, label, x + w / 2, y + (h - 8) / 2, labelColor);
     }
 

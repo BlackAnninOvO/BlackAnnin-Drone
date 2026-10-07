@@ -15,13 +15,14 @@ import net.minecraft.resources.ResourceLocation;
  * @param up         升降输入 [-1,1]
  * @param yawDelta   本次累计的视角水平增量（鼠标像素或摇杆当量）
  * @param pitchDelta 本次累计的视角垂直增量
- * @param flags      bit0 = 恢复跟随（退出手动模式并重置视角），bit1 = 接管手动模式，bit2 = 重置视角
+ * @param flags      bit0 = 恢复跟随（退出手动模式并重置视角），bit1 = 接管手动模式，bit2 = 重置视角，bit3 = 切换自动运镜
  */
 public record RemoteControlPayload(float forward, float strafe, float up,
                                    float yawDelta, float pitchDelta, byte flags) implements CustomPacketPayload {
     public static final byte FLAG_FOLLOW = 1;
     public static final byte FLAG_TAKEOVER = 2;
     public static final byte FLAG_RESET_VIEW = 4;
+    public static final byte FLAG_CINEMA = 8;
 
     public static final Type<RemoteControlPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(BlackAnninsDrone.MODID, "remote_control"));

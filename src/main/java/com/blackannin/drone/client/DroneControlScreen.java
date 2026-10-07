@@ -64,6 +64,7 @@ public class DroneControlScreen extends Screen {
     private FlatButton retrieveButton;
     private FlatButton modeButton;
     private FlatButton resetViewButton;
+    private FlatButton cinemaButton;
     /** 摇杆与滑块几何（render 与鼠标交互共用） */
     private int stickCx, stickCy, stickR;
     private int sliderX, sliderY, sliderW;
@@ -93,6 +94,8 @@ public class DroneControlScreen extends Screen {
         retrieveButton = new FlatButton(bx + 212, by, 98, 18, "gui.blackannin_drone.drone_control.retrieve", this::retrieveDrone);
         modeButton = new FlatButton(px + 66, py + 128, 72, 16, "gui.blackannin_drone.drone_control.mode_mouse", this::toggleStickMode);
         resetViewButton = new FlatButton(px + 146, py + 128, 86, 16, "gui.blackannin_drone.drone_control.reset_view", this::resetView);
+        // 自动运镜按钮位于同一行右侧空位（px+240..320），不与视角/重置按钮及遥测区重叠
+        cinemaButton = new FlatButton(px + 240, py + 128, 80, 16, "gui.blackannin_drone.drone_control.cinema", this::toggleCinematic);
         // 默认视角模式取自客户端配置（默认摇杆/手柄模式），面板重开或窗口调整后保持一致
         this.stickMode = ClientConfig.STICK_VIEW_MODE.get();
         modeButton.setLabel(modeLabel(this.stickMode));
@@ -142,6 +145,15 @@ public class DroneControlScreen extends Screen {
                 : "gui.blackannin_drone.drone_control.mode_mouse");
     }
 
+    /** 切换自动运镜：与手动模式互斥；本地同步退出手动态，避免残留输入把模式抢回来 */
+    private void toggleCinematic() {
+        manualActive = false;
+        releaseKeys();
+        stickX = 0;
+        stickY = 0;
+        PacketDistributor.sendToServer(new RemoteControlPayload(0, 0, 0, 0, 0, RemoteControlPayload.FLAG_CINEMA));
+    }
+
     /** 根据接管与视角模式锁定/释放光标：鼠标模式接管中锁定，获得无限旋转的相对增量 */
     private void updateCursorLock() {
         boolean lock = manualActive && !stickMode;
@@ -184,8 +196,12 @@ public class DroneControlScreen extends Screen {
             syncButtons();
         }
         syncButtons();
-        if (!manualActive) {
-            // 观察态不发送任何输入：鼠标移动绝不会误触发接管
+        if (cinemaButton != null) {
+            // 运镜按钮选中态跟随服务端状态（开启/自动退出均实时反映）
+            cinemaButton.setToggled(drone != null && drone.isCinematic());
+        }
+        if (!manualActive || (drone != null && drone.isCinematic())) {
+            // 观察态/运镜态不发送任何输入：键鼠既不会误触发接管，也不会打断运镜
             pendingYaw = 0;
             pendingPitch = 0;
             return;
@@ -283,6 +299,7 @@ public class DroneControlScreen extends Screen {
                 return true;
             }
             if (modeButton.click(mouseX, mouseY, button) | resetViewButton.click(mouseX, mouseY, button)
+                    | cinemaButton.click(mouseX, mouseY, button)
                     | takeoverButton.click(mouseX, mouseY, button) | followButton.click(mouseX, mouseY, button)
                     | retrieveButton.click(mouseX, mouseY, button)) {
                 return true;
@@ -383,6 +400,7 @@ public class DroneControlScreen extends Screen {
         g.drawString(this.font, hints2, px + 10, py + ph - 10, DIM);
 
         resetViewButton.render(g, this.font, mouseX, mouseY);
+        cinemaButton.render(g, this.font, mouseX, mouseY);
         takeoverButton.render(g, this.font, mouseX, mouseY);
         followButton.render(g, this.font, mouseX, mouseY);
         retrieveButton.render(g, this.font, mouseX, mouseY);
